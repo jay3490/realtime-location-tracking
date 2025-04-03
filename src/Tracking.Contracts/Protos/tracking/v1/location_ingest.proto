@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package tracking.v1;
+
+option csharp_namespace = "Tracking.Contracts.V1";
+
+import "google/protobuf/timestamp.proto";
+
+// Devices hold one long-lived bidirectional stream each. The device is identified by the
+// "x-device-id" request header, so every ping on a stream belongs to that device.
+service LocationIngest {
+  // The client streams pings; the server answers each ping with an ack (in order) and
+  // interleaves geofence alerts for the device as the processor produces them.
+  rpc StreamLocations(stream LocationPing) returns (stream ServerMessage);
+}
+
+message LocationPing {
+  // Client-assigned, echoed back in the ack so the device can match acks to pings.
+  uint64 sequence = 1;
+  double latitude = 2;
+  double longitude = 3;
+  // When the fix was taken on the device. Defaults to the server receive time if unset.
+  google.protobuf.Timestamp recorded_at = 4;
+  // Horizontal accuracy radius reported by the device, if known.
+  optional double accuracy_meters = 5;
+}
+
+message ServerMessage {
+  oneof payload {
+    PingAck ack = 1;
+    GeofenceAlert alert = 2;
+  }
+}
+
+message PingAck {
+  uint64 sequence = 1;
+  bool accepted = 2;
+  // Redis stream entry id the ping was appended under; empty when rejected.
+  string entry_id = 3;
+  // Why the ping was rejected; empty when accepted.
+  string reason = 4;
+}
+
+enum GeofenceTransition {
+  GEOFENCE_TRANSITION_UNSPECIFIED = 0;
+  GEOFENCE_TRANSITION_ENTER = 1;
+  GEOFENCE_TRANSITION_EXIT = 2;
+}
+
+message GeofenceAlert {
+  string device_id = 1;
+  string geofence_id = 2;
+  string geofence_name = 3;
+  GeofenceTransition transition = 4;
+  double latitude = 5;
+  double longitude = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+}
