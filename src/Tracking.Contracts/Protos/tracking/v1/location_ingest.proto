@@ -39,6 +39,9 @@ message PingAck {
   string entry_id = 3;
   // Why the ping was rejected; empty when accepted.
   string reason = 4;
+  // True when the rejection was transient (for example storage was unavailable) and the
+  // same ping may be sent again; false when the ping itself was invalid.
+  bool retryable = 5;
 }
 
 enum GeofenceTransition {

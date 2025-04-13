@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Tracking.Ingest</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore.Server" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracking.Contracts\Tracking.Contracts.csproj" />
+    <ProjectReference Include="..\Tracking.Infrastructure\Tracking.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
