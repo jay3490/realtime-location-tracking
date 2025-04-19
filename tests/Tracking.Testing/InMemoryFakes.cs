@@ -3,7 +3,7 @@ using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
 
-namespace Tracking.Processor.Tests;
+namespace Tracking.Testing;
 
 public sealed class ManualClock(DateTimeOffset start) : TimeProvider
 {
@@ -214,4 +214,14 @@ public sealed class InMemoryGeofenceStore : IGeofenceStore
     }
 
     public Task<long> GetVersionAsync(CancellationToken cancellationToken = default) => Task.FromResult(_version);
+}
+
+public sealed class InMemoryAlertLog : IAlertLog
+{
+    private readonly List<GeofenceAlert> _alerts = [];
+
+    public void Add(GeofenceAlert alert) => _alerts.Add(alert);
+
+    public Task<IReadOnlyList<GeofenceAlert>> GetRecentAsync(int count, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<GeofenceAlert>>(Enumerable.Reverse(_alerts).Take(count).ToArray());
 }

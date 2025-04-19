@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
 using Tracking.Processor.Processing;
+using Tracking.Testing;
 
 namespace Tracking.Processor.Tests;
 

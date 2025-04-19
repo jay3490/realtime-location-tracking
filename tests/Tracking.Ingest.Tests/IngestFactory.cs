@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using Tracking.Core.Abstractions;
+using Tracking.Testing;
 using GeofenceAlert = Tracking.Core.Geofencing.GeofenceAlert;
 using DomainPing = Tracking.Core.Devices.LocationPing;
 
@@ -39,14 +40,9 @@ public sealed class IngestFactory : WebApplicationFactory<Program>
         {
             services.AddSingleton<ILocationLog>(Log);
             services.AddSingleton<IAlertFeed>(Alerts);
-            services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
+            services.AddSingleton<TimeProvider>(new ManualClock(Now));
         });
     }
-}
-
-public sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-{
-    public override DateTimeOffset GetUtcNow() => now;
 }
 
 public sealed class InMemoryLocationLog : ILocationLog
