@@ -1,0 +1,42 @@
+@api = http://localhost:5200
+
+### Create a circle geofence (id generated when omitted)
+POST {{api}}/api/geofences
+Content-Type: application/json
+
+{
+  "type": "circle",
+  "name": "Central Station",
+  "center": { "latitude": 52.3791, "longitude": 4.9003 },
+  "radiusMeters": 400
+}
+
+### Create or replace a polygon geofence with a chosen id
+PUT {{api}}/api/geofences/museum-quarter
+Content-Type: application/json
+
+{
+  "type": "polygon",
+  "name": "Museum quarter",
+  "vertices": [
+    { "latitude": 52.3615, "longitude": 4.8770 },
+    { "latitude": 52.3615, "longitude": 4.8870 },
+    { "latitude": 52.3560, "longitude": 4.8870 },
+    { "latitude": 52.3560, "longitude": 4.8770 }
+  ]
+}
+
+### List geofences
+GET {{api}}/api/geofences
+
+### Delete a geofence
+DELETE {{api}}/api/geofences/museum-quarter
+
+### Latest position of one device
+GET {{api}}/api/devices/sim-0001/position
+
+### Devices within 2 km of Dam Square that reported in the last minute
+GET {{api}}/api/devices/nearby?lat=52.3731&lon=4.8926&radiusMeters=2000&limit=20&maxAgeSeconds=60
+
+### Recent geofence alerts
+GET {{api}}/api/alerts?limit=20
