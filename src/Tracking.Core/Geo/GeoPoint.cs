@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Tracking.Core.Geo;
 
 /// <summary>
@@ -5,6 +7,7 @@ namespace Tracking.Core.Geo;
 /// </summary>
 public readonly record struct GeoPoint(double Latitude, double Longitude)
 {
+    [JsonIgnore]
     public bool IsValid =>
         double.IsFinite(Latitude) && double.IsFinite(Longitude) &&
         Latitude is >= -90 and <= 90 &&
