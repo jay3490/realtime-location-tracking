@@ -12,6 +12,9 @@ namespace Tracking.Simulator;
 /// </summary>
 public static partial class DemoGeofences
 {
+    private const int MaxAttempts = 15;
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
+
     public static IReadOnlyList<Geofence> For(GeoPoint center, double areaRadiusMeters)
     {
         var circle = new CircleGeofence("sim-center", "Simulation centre", center, Math.Round(areaRadiusMeters / 4));
@@ -38,12 +41,28 @@ public static partial class DemoGeofences
         using var http = new HttpClient { BaseAddress = apiUrl, Timeout = TimeSpan.FromSeconds(10) };
         foreach (var geofence in For(center, areaRadiusMeters))
         {
-            using var response = await http.PutAsJsonAsync($"api/geofences/{geofence.Id}", geofence, TrackingJson.Options, cancellationToken)
-                .ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            LogGeofence(logger, geofence.Id, geofence.Name);
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    using var response = await http.PutAsJsonAsync($"api/geofences/{geofence.Id}", geofence, TrackingJson.Options, cancellationToken)
+                        .ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    LogGeofence(logger, geofence.Id, geofence.Name);
+                    break;
+                }
+                catch (HttpRequestException ex) when (attempt < MaxAttempts)
+                {
+                    // The API may still be starting (for example when launched together with docker compose).
+                    LogApiNotReady(logger, apiUrl, attempt, MaxAttempts, ex.Message);
+                    await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "API at {ApiUrl} not ready (attempt {Attempt}/{MaxAttempts}): {Error}")]
+    private static partial void LogApiNotReady(ILogger logger, Uri apiUrl, int attempt, int maxAttempts, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Geofence {Id} ({Name}) is in place")]
     private static partial void LogGeofence(ILogger logger, string id, string name);

@@ -1,0 +1,79 @@
+name: realtime-location-tracking
+
+x-redis-env: &redis-env
+  Redis__ConnectionString: redis:6379
+  Redis__KeyPrefix: tracking
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ingest:
+    build:
+      context: .
+      dockerfile: src/Tracking.Ingest/Dockerfile
+    image: tracking-ingest:local
+    environment:
+      <<: *redis-env
+    ports:
+      - "5100:8080" # gRPC (HTTP/2)
+      - "5101:8081" # health
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  processor:
+    build:
+      context: .
+      dockerfile: src/Tracking.Processor/Dockerfile
+    image: tracking-processor:local
+    environment:
+      <<: *redis-env
+    # Two consumers in the same group; each uses its container hostname as the consumer name.
+    deploy:
+      replicas: 2
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Tracking.Api/Dockerfile
+    image: tracking-api:local
+    environment:
+      <<: *redis-env
+    ports:
+      - "5200:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  simulator:
+    build:
+      context: .
+      dockerfile: src/Tracking.Simulator/Dockerfile
+    image: tracking-simulator:local
+    environment:
+      Simulator__IngestUrl: http://ingest:8080
+      Simulator__ApiUrl: http://api:8080
+      Simulator__Devices: "25"
+      Simulator__Interval: "00:00:01"
+    depends_on:
+      - ingest
+      - api
+      - processor
+    restart: "no"
+
+volumes:
+  redis-data:
