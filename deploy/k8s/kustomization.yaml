@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tracking
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: realtime-location-tracking
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - redis.yaml
+  - ingest.yaml
+  - processor.yaml
+  - api.yaml
+
+# The manifests reference the images built by docker compose (tracking-*:local). To deploy images
+# from a registry instead, run for example:
+#   kustomize edit set image tracking-ingest=<registry>/tracking-ingest:<tag>
+images:
+  - name: tracking-ingest
+    newTag: local
+  - name: tracking-processor
+    newTag: local
+  - name: tracking-api
+    newTag: local

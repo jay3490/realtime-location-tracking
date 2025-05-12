@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tracking-config
+data:
+  Redis__ConnectionString: "redis:6379"
+  Redis__KeyPrefix: "tracking"
+  Redis__ConsumerGroup: "processors"
+  Redis__PingStreamMaxLength: "1000000"
+  Ingest__MaxClockSkew: "00:02:00"
+  Processor__BatchSize: "100"
+  Processor__ClaimMinIdle: "00:00:30"
+  Processor__ClaimInterval: "00:00:10"
+  Logging__LogLevel__Default: "Information"

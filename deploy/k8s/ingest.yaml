@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest
+  labels:
+    app.kubernetes.io/name: ingest
+spec:
+  selector:
+    app.kubernetes.io/name: ingest
+  ports:
+    - name: grpc
+      port: 8080
+      targetPort: grpc
+      appProtocol: kubernetes.io/h2c
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+  labels:
+    app.kubernetes.io/name: ingest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingest
+    spec:
+      # Device streams are long-lived; allow time for in-flight pings to be acknowledged.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: ingest
+          image: tracking-ingest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: tracking-config
+          ports:
+            - name: grpc
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # The root filesystem is read-only; .NET still needs a writable temp directory.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ingest
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ingest
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # Removing an ingest pod drops its device streams, which then reconnect; scale down slowly.
+      stabilizationWindowSeconds: 300
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingest
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingest
