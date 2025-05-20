@@ -19,6 +19,7 @@ public sealed partial class PingConsumer(
     ILocationConsumerGroup group,
     PingProcessor processor,
     ConsumerHeartbeat heartbeat,
+    ProcessorMetrics metrics,
     TimeProvider clock,
     IOptions<ProcessorOptions> options,
     ILogger<PingConsumer> logger)
@@ -164,7 +165,14 @@ public sealed partial class PingConsumer(
                     done.Add(entry.Id);
                     if (outcome == PingOutcome.Stale)
                     {
+                        metrics.Stale();
                         LogStale(entry.Id, ping.DeviceId);
+                    }
+                    else
+                    {
+                        metrics.Applied(StreamEntryId.TryGetTimestamp(entry.Id, out var appendedAt)
+                            ? clock.GetUtcNow() - appendedAt
+                            : TimeSpan.Zero);
                     }
 
                     foreach (var alert in alerts)
@@ -210,6 +218,7 @@ public sealed partial class PingConsumer(
     {
         LogDeadLettered(entry.Id, reason);
         await group.DeadLetterAsync(entry, reason, cancellationToken).ConfigureAwait(false);
+        metrics.DeadLettered();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Consumer {Consumer} starting")]

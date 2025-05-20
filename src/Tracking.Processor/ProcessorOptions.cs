@@ -46,6 +46,10 @@ public sealed class ProcessorOptions
     [Range(1, 1_000)]
     public int MaxDeliveryAttempts { get; set; } = 5;
 
+    /// <summary>How often the consumer group backlog is sampled for the lag metrics.</summary>
+    [Range(typeof(TimeSpan), "00:00:01", "00:10:00")]
+    public TimeSpan LagSampleInterval { get; set; } = TimeSpan.FromSeconds(5);
+
     /// <summary>The worker is reported unhealthy if its loop has not completed an iteration for this long.</summary>
     [Range(typeof(TimeSpan), "00:00:05", "01:00:00")]
     public TimeSpan StallTimeout { get; set; } = TimeSpan.FromMinutes(1);

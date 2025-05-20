@@ -9,7 +9,7 @@ using Tracking.Testing;
 
 namespace Tracking.Processor.Tests;
 
-public sealed class PingConsumerTests
+public sealed class PingConsumerTests : IDisposable
 {
     private static readonly GeoPoint Depot = new(48.8584, 2.2945);
     private static readonly DateTimeOffset T0 = new(2026, 7, 14, 10, 0, 0, TimeSpan.Zero);
@@ -28,10 +28,20 @@ public sealed class PingConsumerTests
         MaxDeliveryAttempts = 3,
     };
 
+    private readonly TestMeterFactory _meters = new();
+    private readonly MetricRecorder _recorder;
+
     public PingConsumerTests()
     {
+        _recorder = new MetricRecorder(_meters);
         _group = new InMemoryConsumerGroup(_clock);
         _geofences.UpsertAsync(new CircleGeofence("depot", "Depot", Depot, 200)).GetAwaiter().GetResult();
+    }
+
+    public void Dispose()
+    {
+        _recorder.Dispose();
+        _meters.Dispose();
     }
 
     private PingConsumer Consumer(string name)
@@ -47,7 +57,7 @@ public sealed class PingConsumerTests
             MaxDeliveryAttempts = _options.MaxDeliveryAttempts,
         });
         var processor = new PingProcessor(_states, new GeofenceCache(_geofences, _clock, options), options);
-        return new PingConsumer(_group, processor, new ConsumerHeartbeat(_clock), _clock, options, NullLogger<PingConsumer>.Instance);
+        return new PingConsumer(_group, processor, new ConsumerHeartbeat(_clock), new ProcessorMetrics(_meters), _clock, options, NullLogger<PingConsumer>.Instance);
     }
 
     private static LocationPing Ping(string device, double metersFromDepot, int second) =>
@@ -242,5 +252,41 @@ public sealed class PingConsumerTests
         await consumer.RunAsync(cts.Token).WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.NotNull(_states["van"]);
+    }
+
+    [Fact]
+    public async Task Outcomes_and_append_to_commit_latency_are_recorded()
+    {
+        var consumer = Consumer("c1");
+        _group.Append(Ping("van", 100, 10));
+        _group.Append(Ping("van", 100, 10));
+        _group.AppendRaw(new Dictionary<string, string> { ["device"] = "van" });
+
+        await consumer.PollAsync();
+
+        Assert.Equal(1, _recorder.Sum("tracking.processor.entries", "outcome", "applied"));
+        Assert.Equal(1, _recorder.Sum("tracking.processor.entries", "outcome", "stale"));
+        Assert.Equal(1, _recorder.Sum("tracking.processor.entries", "outcome", "dead_lettered"));
+        var latency = Assert.Single(_recorder.Values("tracking.processor.latency"));
+        Assert.True(latency >= 0);
+    }
+
+    [Fact]
+    public async Task Lag_monitor_publishes_the_group_backlog()
+    {
+        var metrics = new ProcessorMetrics(_meters);
+        var monitor = new StreamLagMonitor(
+            _group, metrics, _clock, Options.Create(_options), NullLogger<StreamLagMonitor>.Instance);
+        _group.Append(Ping("van", 100, 0));
+        _group.Append(Ping("van", 100, 1));
+        _group.Append(Ping("van", 100, 2));
+        await _group.ReadNewAsync("c1", 1);
+
+        await monitor.SampleAsync(CancellationToken.None);
+        _recorder.Observe();
+
+        Assert.Equal(2, _recorder.Last("tracking.stream.lag"));
+        Assert.Equal(1, _recorder.Last("tracking.stream.pending"));
+        Assert.Equal(3, _recorder.Last("tracking.stream.length"));
     }
 }

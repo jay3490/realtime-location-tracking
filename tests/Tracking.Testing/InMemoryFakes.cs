@@ -107,6 +107,9 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
         return Task.CompletedTask;
     }
 
+    public Task<ConsumerGroupStatus> GetStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ConsumerGroupStatus(_entries.Count, _entries.Count - _delivered, _pending.Count));
+
     public Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken = default)
     {
         DeadLetters.Add((entry, reason));

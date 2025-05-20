@@ -181,4 +181,25 @@ public sealed class LocationIngestServiceTests : IDisposable
 
         Assert.Equal(0, registry.Count);
     }
+
+    [Fact]
+    public async Task Ping_outcomes_are_exported_for_prometheus()
+    {
+        using (var call = Open("van-1"))
+        {
+            await call.RequestStream.WriteAsync(Ping(1));
+            await call.RequestStream.WriteAsync(Ping(2, lat: 123));
+            await NextAsync(call);
+            await NextAsync(call);
+            await call.RequestStream.CompleteAsync();
+            Assert.False(await call.ResponseStream.MoveNext().WaitAsync(Timeout));
+        }
+
+        using var http = _factory.CreateClient();
+        var text = await http.GetStringAsync(new Uri("/metrics", UriKind.Relative));
+
+        Assert.Contains("tracking_ingest_pings_total{", text, StringComparison.Ordinal);
+        Assert.Contains("outcome=\"accepted\"", text, StringComparison.Ordinal);
+        Assert.Contains("outcome=\"rejected\"", text, StringComparison.Ordinal);
+    }
 }

@@ -77,6 +77,24 @@ public sealed class RedisLocationConsumerGroup(IConnectionMultiplexer redis, Red
         return Db.StreamAcknowledgeAsync(keys.Pings, _group, ids).WaitAsync(cancellationToken);
     }
 
+    public async Task<ConsumerGroupStatus> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var db = Db;
+        if (!await db.KeyExistsAsync(keys.Pings).WaitAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return ConsumerGroupStatus.Empty;
+        }
+
+        var length = db.StreamLengthAsync(keys.Pings);
+        var groups = db.StreamGroupInfoAsync(keys.Pings);
+        await Task.WhenAll(length, groups).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        var group = groups.Result.FirstOrDefault(g => g.Name == _group);
+        return group.Name is null
+            ? new ConsumerGroupStatus(length.Result, length.Result, 0)
+            : new ConsumerGroupStatus(length.Result, group.Lag, group.PendingMessageCount);
+    }
+
     public async Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entry);

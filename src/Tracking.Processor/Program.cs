@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Tracking.Infrastructure;
+using Tracking.Infrastructure.Observability;
 using Tracking.Processor;
 using Tracking.Processor.Processing;
 
@@ -16,6 +17,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GeofenceCache>();
 builder.Services.AddSingleton<PingProcessor>();
 builder.Services.AddSingleton<ConsumerHeartbeat>();
+builder.Services.AddSingleton<ProcessorMetrics>();
+builder.Services.AddHostedService<StreamLagMonitor>();
+builder.Services.AddTrackingTelemetry("tracking-processor", TrackingMeters.Processor);
 builder.Services.AddSingleton<PingConsumer>();
 builder.Services.AddHostedService<ProcessorWorker>();
 
@@ -25,8 +29,9 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// The processor has no public API; HTTP exists only for orchestrator probes.
+// The processor has no public API; HTTP exists only for orchestrator probes and metrics scraping.
 app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
 app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+app.MapTrackingMetrics();
 
 app.Run();

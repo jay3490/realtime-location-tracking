@@ -9,6 +9,15 @@ public sealed record LogEntry(string Id, IReadOnlyDictionary<string, string> Fie
 /// <param name="NextStartId">Cursor for the next claim scan; "0-0" once the pending list has been fully scanned.</param>
 public sealed record ClaimResult(string NextStartId, IReadOnlyList<LogEntry> Entries);
 
+/// <summary>A point-in-time view of how far the consumer group is behind the log.</summary>
+/// <param name="Length">Entries currently in the stream.</param>
+/// <param name="Lag">Entries not yet delivered to any consumer; null when the server cannot compute it.</param>
+/// <param name="Pending">Entries delivered but not acknowledged.</param>
+public sealed record ConsumerGroupStatus(long Length, long? Lag, long Pending)
+{
+    public static ConsumerGroupStatus Empty { get; } = new(0, 0, 0);
+}
+
 /// <summary>
 /// Consumer-group access to the location log, with at-least-once delivery: an entry stays
 /// pending against the consumer that read it until that consumer, or one that claims it,
@@ -35,6 +44,9 @@ public interface ILocationConsumerGroup
     Task<ClaimResult> ClaimAbandonedAsync(string consumer, TimeSpan minIdle, string startId, int count, CancellationToken cancellationToken = default);
 
     Task AcknowledgeAsync(IReadOnlyCollection<string> entryIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Reports the group's backlog, for metrics and autoscaling signals.</summary>
+    Task<ConsumerGroupStatus> GetStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Copies an unprocessable entry to the dead-letter stream and acknowledges it.</summary>
     Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken = default);

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Tracking.Core.Abstractions;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Infrastructure.Redis;
@@ -107,5 +108,26 @@ public sealed class RedisLocationConsumerGroupTests(RedisFixture redis) : IAsync
         Assert.Equal("bad data", dead["dead.reason"].ToString());
         Assert.Equal(entry.Id, dead["dead.sourceId"].ToString());
         Assert.Equal("a", dead["device"].ToString());
+    }
+
+    [RedisFact]
+    public async Task Status_reports_length_lag_and_pending()
+    {
+        var log = new RedisLocationLog(redis.Connection, Keys, _options);
+        var group = new RedisLocationConsumerGroup(redis.Connection, Keys, _options);
+        Assert.Equal(ConsumerGroupStatus.Empty, await group.GetStatusAsync());
+
+        await group.EnsureConsumerGroupAsync();
+        for (var i = 0; i < 3; i++)
+        {
+            await log.AppendAsync(Ping("a", i));
+        }
+
+        await group.ReadNewAsync("c1", 1);
+        var status = await group.GetStatusAsync();
+
+        Assert.Equal(3, status.Length);
+        Assert.Equal(2, status.Lag);
+        Assert.Equal(1, status.Pending);
     }
 }

@@ -21,6 +21,7 @@ public sealed partial class LocationIngestService(
     ILocationLog log,
     PingValidator validator,
     DeviceSessionRegistry sessions,
+    IngestMetrics metrics,
     TimeProvider clock,
     IOptions<IngestOptions> options,
     ILogger<LocationIngestService> logger) : LocationIngest.LocationIngestBase
@@ -50,6 +51,7 @@ public sealed partial class LocationIngestService(
         });
 
         LogStreamOpened(deviceId);
+        metrics.StreamOpened();
         var pump = PumpAsync(outbox.Reader, responseStream, cancellationToken);
         var session = sessions.Register(deviceId, outbox.Writer);
         long received = 0;
@@ -67,6 +69,7 @@ public sealed partial class LocationIngestService(
             session.Dispose();
             outbox.Writer.TryComplete();
             await pump.ConfigureAwait(false);
+            metrics.StreamClosed();
             LogStreamClosed(deviceId, received);
         }
     }
@@ -77,6 +80,7 @@ public sealed partial class LocationIngestService(
         var rejection = validator.Validate(ping);
         if (rejection is not null)
         {
+            metrics.Rejected();
             LogPingRejected(deviceId, message.Sequence, rejection);
             return new PingAck { Sequence = message.Sequence, Accepted = false, Reason = rejection };
         }
@@ -84,10 +88,12 @@ public sealed partial class LocationIngestService(
         try
         {
             var entryId = await log.AppendAsync(ping, cancellationToken).ConfigureAwait(false);
+            metrics.Accepted();
             return new PingAck { Sequence = message.Sequence, Accepted = true, EntryId = entryId };
         }
         catch (Exception ex) when (ex is RedisException or TimeoutException)
         {
+            metrics.Unavailable();
             LogAppendFailed(ex, deviceId, message.Sequence);
             return new PingAck
             {
