@@ -202,4 +202,53 @@ public sealed class LocationIngestServiceTests : IDisposable
         Assert.Contains("outcome=\"accepted\"", text, StringComparison.Ordinal);
         Assert.Contains("outcome=\"rejected\"", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Pings_waiting_on_a_slow_log_are_acknowledged_in_order_once_it_recovers()
+    {
+        _factory.Settings["Ingest:InboundCapacity"] = "4";
+        _factory.Settings["Ingest:AppendQueueCapacity"] = "4";
+        _factory.Log.Close();
+        using var call = Open("van-1");
+
+        for (ulong seq = 1; seq <= 20; seq++)
+        {
+            await call.RequestStream.WriteAsync(Ping(seq, lat: 51.5 + (seq / 10_000.0)));
+        }
+
+        await Task.Delay(200);
+        Assert.Empty(_factory.Log.Entries);
+        _factory.Log.Open();
+
+        var acks = new List<PingAck>();
+        for (var i = 0; i < 20; i++)
+        {
+            acks.Add((await NextAsync(call)).Ack);
+        }
+
+        await call.RequestStream.CompleteAsync();
+
+        Assert.Equal(Enumerable.Range(1, 20).Select(i => (ulong)i), acks.Select(a => a.Sequence));
+        Assert.All(acks, a => Assert.True(a.Accepted));
+        Assert.Equal(_factory.Log.Entries.Select(e => e.Id), acks.Select(a => a.EntryId));
+        Assert.True(_factory.Log.BatchSizes.Count < 20, "pings that waited should have been appended in batches");
+    }
+
+    [Fact]
+    public async Task Only_the_pings_whose_append_failed_are_retryable()
+    {
+        _factory.Log.FailWhere = ping => ping.Position.Latitude > 51.6;
+        using var call = Open("van-1");
+
+        await call.RequestStream.WriteAsync(Ping(1, lat: 51.55));
+        await call.RequestStream.WriteAsync(Ping(2, lat: 51.65));
+        var first = (await NextAsync(call)).Ack;
+        var second = (await NextAsync(call)).Ack;
+        await call.RequestStream.CompleteAsync();
+
+        Assert.True(first.Accepted);
+        Assert.False(second.Accepted);
+        Assert.True(second.Retryable);
+        Assert.Single(_factory.Log.Entries);
+    }
 }

@@ -25,6 +25,12 @@ public sealed class RedisOptions
     [Range(1_000, int.MaxValue)]
     public int PingStreamMaxLength { get; set; } = 1_000_000;
 
+    /// <summary>
+    /// Trim with <c>MAXLEN ~</c> (whole radix-tree nodes, cheap, may overshoot slightly) rather than an
+    /// exact <c>MAXLEN</c>. Exact trimming costs more per append and is rarely worth it.
+    /// </summary>
+    public bool PingStreamTrimApproximate { get; set; } = true;
+
     [Range(100, int.MaxValue)]
     public int AlertLogMaxLength { get; set; } = 10_000;
 }

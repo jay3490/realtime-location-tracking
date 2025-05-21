@@ -20,4 +20,19 @@ public sealed class IngestOptions
     /// </summary>
     [Range(8, 100_000)]
     public int OutboxCapacity { get; set; } = 256;
+
+    /// <summary>
+    /// Pings read from one device stream but not yet appended. When it is full the stream stops
+    /// reading, so HTTP/2 flow control slows the device down instead of the server buffering for it.
+    /// </summary>
+    [Range(1, 10_000)]
+    public int InboundCapacity { get; set; } = 64;
+
+    /// <summary>Pings queued for appending across all streams on this instance.</summary>
+    [Range(1, 1_000_000)]
+    public int AppendQueueCapacity { get; set; } = 4_096;
+
+    /// <summary>Most pings sent to Redis in one pipelined batch.</summary>
+    [Range(1, 10_000)]
+    public int MaxBatchSize { get; set; } = 256;
 }

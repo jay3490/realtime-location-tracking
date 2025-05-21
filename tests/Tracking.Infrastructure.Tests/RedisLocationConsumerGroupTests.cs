@@ -130,4 +130,41 @@ public sealed class RedisLocationConsumerGroupTests(RedisFixture redis) : IAsync
         Assert.Equal(2, status.Lag);
         Assert.Equal(1, status.Pending);
     }
+
+    [RedisFact]
+    public async Task Batched_appends_keep_order_and_trim_once_per_batch()
+    {
+        var options = RedisFixture.UniqueOptions(o =>
+        {
+            o.PingStreamMaxLength = 1_000;
+            o.PingStreamTrimApproximate = false;
+        });
+        var keys = new RedisKeys(options);
+        var log = new RedisLocationLog(redis.Connection, keys, options);
+        try
+        {
+            var first = await log.AppendBatchAsync([.. Enumerable.Range(0, 800).Select(i => Ping("a", i))]);
+            var second = await log.AppendBatchAsync([.. Enumerable.Range(800, 400).Select(i => Ping("a", i))]);
+
+            Assert.All(first.Concat(second), id => Assert.NotNull(id));
+            Assert.Equal(first.Concat(second), first.Concat(second).Order(Comparer<string?>.Create(CompareIds)));
+            Assert.Equal(1_000, await redis.Connection.GetDatabase().StreamLengthAsync(keys.Pings));
+            Assert.Empty(await log.AppendBatchAsync([]));
+        }
+        finally
+        {
+            await redis.DeleteKeysAsync(options.Value.KeyPrefix);
+        }
+    }
+
+    private static int CompareIds(string? x, string? y)
+    {
+        static (long Ms, long Seq) Parse(string id)
+        {
+            var parts = id.Split('-');
+            return (long.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), long.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        return Parse(x!).CompareTo(Parse(y!));
+    }
 }

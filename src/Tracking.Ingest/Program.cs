@@ -17,6 +17,8 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PingValidator>();
 builder.Services.AddSingleton<DeviceSessionRegistry>();
 builder.Services.AddSingleton<IngestMetrics>();
+builder.Services.AddSingleton<PingAppender>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PingAppender>());
 builder.Services.AddTrackingTelemetry("tracking-ingest", TrackingMeters.Ingest);
 builder.Services.AddHostedService<AlertRelay>();
 

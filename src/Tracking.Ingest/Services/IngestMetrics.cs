@@ -8,6 +8,8 @@ public sealed class IngestMetrics
 {
     private readonly Counter<long> _pings;
     private readonly UpDownCounter<long> _activeStreams;
+    private readonly Histogram<int> _batchSize;
+    private readonly Histogram<double> _appendLatency;
 
     public IngestMetrics(IMeterFactory meterFactory)
     {
@@ -22,6 +24,14 @@ public sealed class IngestMetrics
             "tracking.ingest.streams.active",
             unit: "{stream}",
             description: "Device streams currently open on this instance.");
+        _batchSize = meter.CreateHistogram<int>(
+            "tracking.ingest.append.batch_size",
+            unit: "{ping}",
+            description: "Pings per pipelined XADD batch.");
+        _appendLatency = meter.CreateHistogram<double>(
+            "tracking.ingest.append.latency",
+            unit: "s",
+            description: "Round-trip time of one pipelined XADD batch.");
     }
 
     public void Accepted(int count = 1) => _pings.Add(count, new KeyValuePair<string, object?>("outcome", "accepted"));
@@ -29,6 +39,12 @@ public sealed class IngestMetrics
     public void Rejected() => _pings.Add(1, new KeyValuePair<string, object?>("outcome", "rejected"));
 
     public void Unavailable(int count = 1) => _pings.Add(count, new KeyValuePair<string, object?>("outcome", "unavailable"));
+
+    public void BatchAppended(int size, TimeSpan elapsed)
+    {
+        _batchSize.Record(size);
+        _appendLatency.Record(elapsed.TotalSeconds);
+    }
 
     public void StreamOpened() => _activeStreams.Add(1);
 
