@@ -26,15 +26,17 @@ public sealed partial class PingAppender : BackgroundService
 {
     private readonly ILocationLog _log;
     private readonly IngestMetrics _metrics;
+    private readonly StreamDrain _drain;
     private readonly ILogger<PingAppender> _logger;
     private readonly int _maxBatchSize;
     private readonly Channel<PendingAppend> _queue;
 
-    public PingAppender(ILocationLog log, IngestMetrics metrics, IOptions<IngestOptions> options, ILogger<PingAppender> logger)
+    public PingAppender(ILocationLog log, IngestMetrics metrics, StreamDrain drain, IOptions<IngestOptions> options, ILogger<PingAppender> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         _log = log;
         _metrics = metrics;
+        _drain = drain;
         _logger = logger;
         _maxBatchSize = options.Value.MaxBatchSize;
         _queue = Channel.CreateBounded<PendingAppend>(new BoundedChannelOptions(options.Value.AppendQueueCapacity)
@@ -96,8 +98,22 @@ public sealed partial class PingAppender : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Waits for the open streams to drain (bounded by the host's shutdown timeout), then stops taking
+    /// new pings and finishes appending the queued ones.
+    /// </summary>
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        _drain.Begin();
+        try
+        {
+            await _drain.WhenIdleAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            LogDrainTimedOut(_drain.ActiveStreams);
+        }
+
         _queue.Writer.TryComplete();
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -122,6 +138,9 @@ public sealed partial class PingAppender : BackgroundService
             batch[i].Result.TrySetResult(i < ids.Count ? ids[i] : null);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Shutdown timeout reached with {Streams} streams still open; their unread pings were not acknowledged")]
+    private partial void LogDrainTimedOut(int streams);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not append a batch of {Count} pings")]
     private partial void LogBatchFailed(Exception exception, int count);

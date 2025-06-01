@@ -28,6 +28,7 @@ public sealed partial class LocationIngestService(
     PingAppender appender,
     PingValidator validator,
     DeviceSessionRegistry sessions,
+    StreamDrain drain,
     IngestMetrics metrics,
     TimeProvider clock,
     IOptions<IngestOptions> options,
@@ -52,6 +53,8 @@ public sealed partial class LocationIngestService(
                 $"The '{ContractMapping.DeviceIdHeader}' header must be 1-{DeviceId.MaxLength} characters of letters, digits, '.', ':', '_' or '-'."));
         }
 
+        using var lease = drain.TryEnter() ?? throw Draining();
+
         var cancellationToken = context.CancellationToken;
         var outbox = Channel.CreateBounded<ServerMessage>(new BoundedChannelOptions(_options.OutboxCapacity)
         {
@@ -69,11 +72,18 @@ public sealed partial class LocationIngestService(
         metrics.StreamOpened();
         var pump = PumpAsync(outbox.Reader, responseStream, cancellationToken);
         var session = sessions.Register(deviceId, outbox.Writer);
-        var reader = ReadRequestsAsync(requestStream, inbound.Writer, cancellationToken);
+        var reader = ReadRequestsAsync(requestStream, inbound.Writer, drain.Token, cancellationToken);
         long received = 0;
         try
         {
             received = await AcknowledgeAsync(deviceId, inbound.Reader, outbox.Writer, cancellationToken).ConfigureAwait(false);
+            if (await reader.ConfigureAwait(false))
+            {
+                // Every ping read from this stream has been acknowledged; anything the device sent after
+                // that was never read and will be resent on the connection it opens next.
+                LogStreamDrained(deviceId, received);
+                throw Draining();
+            }
         }
         finally
         {
@@ -86,27 +96,56 @@ public sealed partial class LocationIngestService(
         }
     }
 
+    private static RpcException Draining() =>
+        new(new Status(StatusCode.Unavailable, "This ingest instance is shutting down; reconnect to continue streaming."));
+
     /// <summary>
-    /// Copies the request stream into <paramref name="inbound"/>, waiting whenever it is full. Errors
-    /// complete the channel so the acknowledging loop sees them; this task itself never faults.
+    /// Copies the request stream into <paramref name="inbound"/>, waiting whenever it is full, until the
+    /// device completes its side or <paramref name="drainToken"/> fires. Returns true when it stopped
+    /// because of draining. Errors complete the channel so the acknowledging loop sees them; this task
+    /// itself never faults.
     /// </summary>
-    private static async Task ReadRequestsAsync(
+    private static async Task<bool> ReadRequestsAsync(
         IAsyncStreamReader<Contracts.V1.LocationPing> requestStream,
         ChannelWriter<Contracts.V1.LocationPing> inbound,
+        CancellationToken drainToken,
         CancellationToken cancellationToken)
     {
+        var drainSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = drainToken.Register(() => drainSignal.TrySetResult());
         try
         {
-            while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
+            while (!drainToken.IsCancellationRequested)
             {
+                // The read is raced against the drain signal rather than cancelled by it: cancelling a
+                // pending read would abort the whole call before the buffered pings are acknowledged.
+                var next = requestStream.MoveNext(cancellationToken);
+                if (!next.IsCompleted && await Task.WhenAny(next, drainSignal.Task).ConfigureAwait(false) != next)
+                {
+                    _ = next.ContinueWith(
+                        static t => _ = t.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                    break;
+                }
+
+                if (!await next.ConfigureAwait(false))
+                {
+                    inbound.TryComplete();
+                    return false;
+                }
+
                 await inbound.WriteAsync(requestStream.Current, cancellationToken).ConfigureAwait(false);
             }
 
             inbound.TryComplete();
+            return true;
         }
         catch (Exception ex)
         {
             inbound.TryComplete(ex);
+            return false;
         }
     }
 
@@ -212,6 +251,9 @@ public sealed partial class LocationIngestService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Location stream closed for {DeviceId} after {Received} pings")]
     private partial void LogStreamClosed(string deviceId, long received);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Location stream for {DeviceId} drained after {Received} pings; asked the device to reconnect")]
+    private partial void LogStreamDrained(string deviceId, long received);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Rejected ping {Sequence} from {DeviceId}: {Reason}")]
     private partial void LogPingRejected(string deviceId, ulong sequence, string reason);

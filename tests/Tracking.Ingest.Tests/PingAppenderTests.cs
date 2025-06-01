@@ -14,12 +14,13 @@ public sealed class PingAppenderTests : IAsyncLifetime, IDisposable
 
     private readonly InMemoryLocationLog _log = new();
     private readonly TestMeterFactory _meters = new();
+    private readonly StreamDrain _drain = new(NullLogger<StreamDrain>.Instance);
     private PingAppender _appender = null!;
 
     public async Task InitializeAsync()
     {
         var options = new IngestOptions { AppendQueueCapacity = 4, MaxBatchSize = 100 };
-        _appender = new PingAppender(_log, new IngestMetrics(_meters), Options.Create(options), NullLogger<PingAppender>.Instance);
+        _appender = new PingAppender(_log, new IngestMetrics(_meters), _drain, Options.Create(options), NullLogger<PingAppender>.Instance);
         await _appender.StartAsync(CancellationToken.None);
     }
 
@@ -32,6 +33,7 @@ public sealed class PingAppenderTests : IAsyncLifetime, IDisposable
     public void Dispose()
     {
         _appender.Dispose();
+        _drain.Dispose();
         _meters.Dispose();
     }
 
@@ -116,6 +118,33 @@ public sealed class PingAppenderTests : IAsyncLifetime, IDisposable
 
         Assert.All(await queued.WaitAsync(Timeout), Assert.NotNull);
         Assert.Null(Assert.Single(await _appender.AppendAsync([Ping("a", 2)], CancellationToken.None)));
+    }
+
+    [Fact]
+    public async Task Stopping_waits_for_open_streams_to_finish_first()
+    {
+        var stream = _drain.TryEnter()!;
+        var stopping = _appender.StopAsync(CancellationToken.None);
+        await Task.Delay(100);
+
+        Assert.True(_drain.IsDraining);
+        Assert.False(stopping.IsCompleted);
+        Assert.NotNull(Assert.Single(await _appender.AppendAsync([Ping("a", 0)], CancellationToken.None).WaitAsync(Timeout)));
+
+        stream.Dispose();
+        await stopping.WaitAsync(Timeout);
+        Assert.Null(_drain.TryEnter());
+    }
+
+    [Fact]
+    public async Task Stopping_gives_up_on_streams_when_the_shutdown_timeout_fires()
+    {
+        using var stuck = _drain.TryEnter();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await _appender.StopAsync(timeout.Token).WaitAsync(Timeout);
+
+        Assert.Equal(1, _drain.ActiveStreams);
     }
 
     private static async Task WaitUntil(Func<bool> condition)

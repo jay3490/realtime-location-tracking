@@ -32,6 +32,13 @@ public sealed class IngestOptions
     [Range(1, 1_000_000)]
     public int AppendQueueCapacity { get; set; } = 4_096;
 
+    /// <summary>
+    /// How long shutdown waits for open streams to acknowledge what they have read and close. Keep it
+    /// below the pod's termination grace period minus any preStop delay.
+    /// </summary>
+    [Range(typeof(TimeSpan), "00:00:01", "00:10:00")]
+    public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Most pings sent to Redis in one pipelined batch.</summary>
     [Range(1, 10_000)]
     public int MaxBatchSize { get; set; } = 256;

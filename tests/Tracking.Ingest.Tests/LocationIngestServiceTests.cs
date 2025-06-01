@@ -1,6 +1,8 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using Tracking.Contracts;
 using Tracking.Contracts.V1;
 using Tracking.Core.Geo;
@@ -250,5 +252,55 @@ public sealed class LocationIngestServiceTests : IDisposable
         Assert.False(second.Accepted);
         Assert.True(second.Retryable);
         Assert.Single(_factory.Log.Entries);
+    }
+
+    [Fact]
+    public async Task Draining_acknowledges_what_was_read_then_asks_the_device_to_reconnect()
+    {
+        var drain = _factory.Services.GetRequiredService<StreamDrain>();
+        using var call = Open("van-1");
+        await call.RequestStream.WriteAsync(Ping(1));
+        Assert.True((await NextAsync(call)).Ack.Accepted);
+
+        _factory.Log.Close();
+        await call.RequestStream.WriteAsync(Ping(2));
+        await call.RequestStream.WriteAsync(Ping(3));
+        await Task.Delay(200); // let the server read both while their appends are held
+
+        drain.Begin();
+        _factory.Log.Open();
+
+        var acks = new[] { (await NextAsync(call)).Ack, (await NextAsync(call)).Ack };
+        var ended = await Assert.ThrowsAsync<RpcException>(() => call.ResponseStream.MoveNext().WaitAsync(Timeout));
+
+        Assert.Equal([2UL, 3UL], acks.Select(a => a.Sequence));
+        Assert.All(acks, a => Assert.True(a.Accepted));
+        Assert.Equal(StatusCode.Unavailable, ended.StatusCode);
+        Assert.Equal(3, _factory.Log.Entries.Count);
+        Assert.Equal(0, drain.ActiveStreams);
+    }
+
+    [Fact]
+    public async Task New_streams_are_refused_while_draining()
+    {
+        _factory.Services.GetRequiredService<StreamDrain>().Begin();
+        using var call = Open("van-1");
+
+        var error = await Assert.ThrowsAsync<RpcException>(() => call.ResponseStream.MoveNext().WaitAsync(Timeout));
+
+        Assert.Equal(StatusCode.Unavailable, error.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stopping_the_host_starts_draining_and_fails_readiness()
+    {
+        var drain = _factory.Services.GetRequiredService<StreamDrain>();
+        var check = new StreamDrainHealthCheck(drain);
+        Assert.Equal(HealthStatus.Healthy, (await check.CheckHealthAsync(new HealthCheckContext())).Status);
+
+        _factory.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+
+        Assert.True(drain.IsDraining);
+        Assert.Equal(HealthStatus.Unhealthy, (await check.CheckHealthAsync(new HealthCheckContext())).Status);
     }
 }
