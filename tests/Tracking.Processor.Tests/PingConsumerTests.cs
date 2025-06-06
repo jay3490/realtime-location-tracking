@@ -26,6 +26,7 @@ public sealed class PingConsumerTests : IDisposable
         GeofenceRefreshInterval = TimeSpan.Zero,
         MaxCommitAttempts = 3,
         MaxDeliveryAttempts = 3,
+        MaxDeliveryCount = 4,
     };
 
     private readonly TestMeterFactory _meters = new();
@@ -55,6 +56,7 @@ public sealed class PingConsumerTests : IDisposable
             GeofenceRefreshInterval = _options.GeofenceRefreshInterval,
             MaxCommitAttempts = _options.MaxCommitAttempts,
             MaxDeliveryAttempts = _options.MaxDeliveryAttempts,
+            MaxDeliveryCount = _options.MaxDeliveryCount,
         });
         var processor = new PingProcessor(_states, new GeofenceCache(_geofences, _clock, options), options);
         return new PingConsumer(_group, processor, new ConsumerHeartbeat(_clock), new ProcessorMetrics(_meters), _clock, options, NullLogger<PingConsumer>.Instance);
@@ -112,7 +114,7 @@ public sealed class PingConsumerTests : IDisposable
 
         await consumer.PollAsync();
 
-        var (entry, reason) = Assert.Single(_group.DeadLetters);
+        var (entry, reason, _) = Assert.Single(_group.DeadLetters);
         Assert.Equal(bad, entry.Id);
         Assert.Contains("lat", reason, StringComparison.Ordinal);
         Assert.Empty(_group.PendingIds);
@@ -212,6 +214,7 @@ public sealed class PingConsumerTests : IDisposable
 
         Assert.Equal([first, second], _group.PendingFor("c1"));
         Assert.Empty(_group.DeadLetters);
+        Assert.Equal(1, _group.DeliveryCount(first)); // retried from memory, never re-read
 
         _states.ReadFailure = null;
         await consumer.PollAsync();
@@ -231,7 +234,7 @@ public sealed class PingConsumerTests : IDisposable
         await Assert.ThrowsAsync<CommitConflictException>(() => consumer.PollAsync());
         await consumer.PollAsync();
 
-        var (entry, reason) = Assert.Single(_group.DeadLetters);
+        var (entry, reason, _) = Assert.Single(_group.DeadLetters);
         Assert.Equal(poison, entry.Id);
         Assert.Contains("failed 3 times", reason, StringComparison.Ordinal);
         Assert.Empty(_group.PendingIds);
@@ -288,5 +291,52 @@ public sealed class PingConsumerTests : IDisposable
         Assert.Equal(2, _recorder.Last("tracking.stream.lag"));
         Assert.Equal(1, _recorder.Last("tracking.stream.pending"));
         Assert.Equal(3, _recorder.Last("tracking.stream.length"));
+    }
+
+    [Fact]
+    public async Task Entries_that_keep_crashing_their_consumer_are_dead_lettered_by_delivery_count()
+    {
+        var poison = _group.Append(Ping("van", 100, 0));
+        var healthy = _group.Append(Ping("bus", 100, 0));
+
+        // Four runs of c1 read the entry and died before acknowledging it: nothing was ever counted
+        // in memory, but Redis counted every delivery.
+        await _group.ReadNewAsync("c1", 1);
+        for (var run = 0; run < 3; run++)
+        {
+            await _group.ReadOwnPendingAsync("c1", "0-0", 1);
+        }
+
+        var restarted = Consumer("c1");
+        await restarted.PollAsync();
+
+        var (entry, reason, consumer) = Assert.Single(_group.DeadLetters);
+        Assert.Equal(poison, entry.Id);
+        Assert.Equal(5, entry.DeliveryCount);
+        Assert.Contains("delivered 5 times", reason, StringComparison.Ordinal);
+        Assert.Equal("c1", consumer);
+        Assert.Null(_states["van"]);
+        Assert.Contains(healthy, _group.Acknowledged);
+        Assert.Empty(_group.PendingIds);
+    }
+
+    [Fact]
+    public async Task Delivery_counts_follow_an_entry_when_it_is_claimed()
+    {
+        var id = _group.Append(Ping("van", 100, 0));
+        await _group.ReadNewAsync("a", 1);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        await _group.ClaimAbandonedAsync("b", TimeSpan.FromSeconds(30), "0-0", 10);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        await _group.ClaimAbandonedAsync("c", TimeSpan.FromSeconds(30), "0-0", 10);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+
+        // The survivor's claim is the fourth delivery: still within the limit, so it is processed.
+        var survivor = Consumer("survivor");
+        await survivor.PollAsync();
+
+        Assert.Empty(_group.DeadLetters);
+        Assert.Contains(id, _group.Acknowledged);
+        Assert.NotNull(_states["van"]);
     }
 }

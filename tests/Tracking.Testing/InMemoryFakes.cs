@@ -22,10 +22,11 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
 {
     private readonly List<LogEntry> _entries = [];
     private readonly Dictionary<string, (string Consumer, DateTimeOffset DeliveredAt)> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _deliveries = new(StringComparer.Ordinal);
     private int _delivered;
     private long _nextId;
 
-    public List<(LogEntry Entry, string Reason)> DeadLetters { get; } = [];
+    public List<(LogEntry Entry, string Reason, string Consumer)> DeadLetters { get; } = [];
 
     public HashSet<string> Acknowledged { get; } = new(StringComparer.Ordinal);
 
@@ -43,6 +44,8 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
         return id;
     }
 
+    public int DeliveryCount(string id) => _deliveries.GetValueOrDefault(id);
+
     public IReadOnlyList<string> PendingFor(string consumer) =>
         _pending.Where(p => p.Value.Consumer == consumer).Select(p => p.Key).Order(StringComparer.Ordinal).ToArray();
 
@@ -56,12 +59,7 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
     {
         var batch = _entries.Skip(_delivered).Take(count).ToArray();
         _delivered += batch.Length;
-        foreach (var entry in batch)
-        {
-            _pending[entry.Id] = (consumer, clock.Now);
-        }
-
-        return Task.FromResult<IReadOnlyList<LogEntry>>(batch);
+        return Task.FromResult<IReadOnlyList<LogEntry>>(Deliver(consumer, batch));
     }
 
     public Task<IReadOnlyList<LogEntry>> ReadOwnPendingAsync(string consumer, string afterId, int count, CancellationToken cancellationToken = default)
@@ -70,12 +68,7 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
             .Where(e => _pending.TryGetValue(e.Id, out var p) && p.Consumer == consumer && Sequence(e.Id) > Sequence(afterId))
             .Take(count)
             .ToArray();
-        foreach (var entry in batch)
-        {
-            _pending[entry.Id] = (consumer, clock.Now);
-        }
-
-        return Task.FromResult<IReadOnlyList<LogEntry>>(batch);
+        return Task.FromResult<IReadOnlyList<LogEntry>>(Deliver(consumer, batch));
     }
 
     public Task<ClaimResult> ClaimAbandonedAsync(string consumer, TimeSpan minIdle, string startId, int count, CancellationToken cancellationToken = default)
@@ -85,13 +78,8 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
             .ToArray();
         var scanned = candidates.Take(count).ToArray();
         var claimed = scanned.Where(e => clock.Now - _pending[e.Id].DeliveredAt >= minIdle).ToArray();
-        foreach (var entry in claimed)
-        {
-            _pending[entry.Id] = (consumer, clock.Now);
-        }
-
         var next = candidates.Length > count ? candidates[count].Id : "0-0";
-        return Task.FromResult(new ClaimResult(next, claimed));
+        return Task.FromResult(new ClaimResult(next, Deliver(consumer, claimed)));
     }
 
     public Task AcknowledgeAsync(IReadOnlyCollection<string> entryIds, CancellationToken cancellationToken = default)
@@ -110,11 +98,22 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
     public Task<ConsumerGroupStatus> GetStatusAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(new ConsumerGroupStatus(_entries.Count, _entries.Count - _delivered, _pending.Count));
 
-    public Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken = default)
+    public Task DeadLetterAsync(LogEntry entry, string reason, string consumer, CancellationToken cancellationToken = default)
     {
-        DeadLetters.Add((entry, reason));
+        DeadLetters.Add((entry, reason, consumer));
         return AcknowledgeAsync([entry.Id], cancellationToken);
     }
+
+    /// <summary>Hands entries to a consumer the way Redis does: owner, delivery time and delivery count.</summary>
+    private LogEntry[] Deliver(string consumer, IEnumerable<LogEntry> entries) =>
+        entries
+            .Select(entry =>
+            {
+                _pending[entry.Id] = (consumer, clock.Now);
+                var count = _deliveries[entry.Id] = _deliveries.GetValueOrDefault(entry.Id) + 1;
+                return entry with { DeliveryCount = count };
+            })
+            .ToArray();
 
     private static long Sequence(string id) => long.Parse(id.AsSpan(0, id.IndexOf('-', StringComparison.Ordinal)), provider: null);
 }

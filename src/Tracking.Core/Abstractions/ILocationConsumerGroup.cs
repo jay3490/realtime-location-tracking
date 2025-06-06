@@ -1,7 +1,11 @@
 namespace Tracking.Core.Abstractions;
 
 /// <summary>A raw entry read from the location log.</summary>
-public sealed record LogEntry(string Id, IReadOnlyDictionary<string, string> Fields);
+/// <param name="DeliveryCount">
+/// How many times the group has handed this entry to a consumer, this delivery included. It survives
+/// consumer restarts and moves with the entry when it is claimed, so it counts crash loops too.
+/// </param>
+public sealed record LogEntry(string Id, IReadOnlyDictionary<string, string> Fields, int DeliveryCount = 1);
 
 /// <summary>
 /// The outcome of claiming entries that other consumers read but never acknowledged.
@@ -48,6 +52,9 @@ public interface ILocationConsumerGroup
     /// <summary>Reports the group's backlog, for metrics and autoscaling signals.</summary>
     Task<ConsumerGroupStatus> GetStatusAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Copies an unprocessable entry to the dead-letter stream and acknowledges it.</summary>
-    Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Copies an unprocessable entry to the dead-letter stream, with why and by whom it was given up
+    /// on, and acknowledges it, in one transaction.
+    /// </summary>
+    Task DeadLetterAsync(LogEntry entry, string reason, string consumer, CancellationToken cancellationToken = default);
 }

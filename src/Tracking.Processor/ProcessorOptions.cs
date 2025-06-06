@@ -42,9 +42,20 @@ public sealed class ProcessorOptions
     [Range(1, 100)]
     public int MaxCommitAttempts { get; set; } = 5;
 
-    /// <summary>Failed processing attempts after which an entry is moved to the dead-letter stream.</summary>
+    /// <summary>
+    /// Failed processing attempts, counted by this consumer, after which an entry is moved to the
+    /// dead-letter stream. Transient Redis errors do not count.
+    /// </summary>
     [Range(1, 1_000)]
     public int MaxDeliveryAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Deliveries, as counted by Redis for the whole group, after which an entry is dead-lettered
+    /// before it is processed again. This catches entries that never fail cleanly, such as one that
+    /// crashes the process or keeps a consumer from acknowledging it before it is claimed elsewhere.
+    /// </summary>
+    [Range(2, 10_000)]
+    public int MaxDeliveryCount { get; set; } = 20;
 
     /// <summary>How often the consumer group backlog is sampled for the lag metrics.</summary>
     [Range(typeof(TimeSpan), "00:00:01", "00:10:00")]

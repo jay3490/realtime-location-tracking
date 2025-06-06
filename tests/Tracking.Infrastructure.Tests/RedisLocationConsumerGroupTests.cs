@@ -101,13 +101,35 @@ public sealed class RedisLocationConsumerGroupTests(RedisFixture redis) : IAsync
         await log.AppendAsync(Ping("a", 1));
         var entry = Assert.Single(await group.ReadNewAsync("c1", 10));
 
-        await group.DeadLetterAsync(entry, "bad data");
+        await group.DeadLetterAsync(entry, "bad data", "c1");
 
         Assert.Empty(await group.ReadOwnPendingAsync("c1", "0", 10));
         var dead = Assert.Single(await redis.Connection.GetDatabase().StreamRangeAsync(Keys.DeadLetters));
         Assert.Equal("bad data", dead["dead.reason"].ToString());
         Assert.Equal(entry.Id, dead["dead.sourceId"].ToString());
         Assert.Equal("a", dead["device"].ToString());
+        Assert.Equal("c1", dead[DeadLetterFields.Consumer].ToString());
+        Assert.Equal("1", dead[DeadLetterFields.Deliveries].ToString());
+    }
+
+    [RedisFact]
+    public async Task Rereads_and_claims_report_the_group_wide_delivery_count()
+    {
+        var log = new RedisLocationLog(redis.Connection, Keys, _options);
+        var group = new RedisLocationConsumerGroup(redis.Connection, Keys, _options);
+        await group.EnsureConsumerGroupAsync();
+        await log.AppendAsync(Ping("a", 1));
+        await log.AppendAsync(Ping("a", 2));
+
+        var fresh = await group.ReadNewAsync("c1", 10);
+        var reread = await group.ReadOwnPendingAsync("c1", "0", 10);
+        await Task.Delay(30);
+        var claimed = await group.ClaimAbandonedAsync("c2", TimeSpan.FromMilliseconds(10), "0-0", 10);
+
+        Assert.All(fresh, e => Assert.Equal(1, e.DeliveryCount));
+        Assert.All(reread, e => Assert.Equal(2, e.DeliveryCount));
+        Assert.Equal(2, claimed.Entries.Count);
+        Assert.All(claimed.Entries, e => Assert.Equal(3, e.DeliveryCount));
     }
 
     [RedisFact]

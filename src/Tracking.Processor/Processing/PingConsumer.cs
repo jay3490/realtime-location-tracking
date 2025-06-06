@@ -14,6 +14,12 @@ namespace Tracking.Processor.Processing;
 /// acknowledged without side effects. Entries left pending by this consumer (after an error or a
 /// restart) are re-read before new ones; entries left by a consumer that disappeared are claimed
 /// with <c>XAUTOCLAIM</c> once they have been idle for <see cref="ProcessorOptions.ClaimMinIdle"/>.
+/// <para>
+/// Poison entries are dead-lettered in two ways: one that fails with a non-transient error
+/// <see cref="ProcessorOptions.MaxDeliveryAttempts"/> times on this consumer, and one whose group-wide
+/// delivery count passes <see cref="ProcessorOptions.MaxDeliveryCount"/> (for example because it
+/// crashes whichever process picks it up), which is moved aside before it is processed again.
+/// </para>
 /// </remarks>
 public sealed partial class PingConsumer(
     ILocationConsumerGroup group,
@@ -29,6 +35,7 @@ public sealed partial class PingConsumer(
     private readonly ProcessorOptions _options = options.Value;
     private readonly Dictionary<string, int> _failedAttempts = new(StringComparer.Ordinal);
     private bool _ownPendingDirty = true;
+    private IReadOnlyList<LogEntry> _retry = [];
     private DateTimeOffset _nextClaimAt = DateTimeOffset.MinValue;
 
     public string ConsumerName => _options.ConsumerName;
@@ -70,8 +77,9 @@ public sealed partial class PingConsumer(
     }
 
     /// <summary>
-    /// One iteration: make sure the group exists, finish this consumer's own pending entries, claim
-    /// abandoned entries when due, then read a batch of new entries. Returns how many entries were
+    /// One iteration: make sure the group exists, finish this consumer's own pending entries (once, at
+    /// startup), retry entries that failed in the previous iteration, claim abandoned entries when due,
+    /// then read a batch of new entries. Returns how many entries were
     /// handled (processed, skipped as stale, or dead-lettered).
     /// </summary>
     public async Task<int> PollAsync(CancellationToken cancellationToken = default)
@@ -83,6 +91,13 @@ public sealed partial class PingConsumer(
             await group.EnsureConsumerGroupAsync(cancellationToken).ConfigureAwait(false);
             handled += await DrainOwnPendingAsync(cancellationToken).ConfigureAwait(false);
             _ownPendingDirty = false;
+        }
+
+        if (_retry.Count > 0)
+        {
+            var retry = _retry;
+            _retry = [];
+            handled += await HandleAsync(retry, cancellationToken).ConfigureAwait(false);
         }
 
         if (clock.GetUtcNow() >= _nextClaimAt)
@@ -143,15 +158,27 @@ public sealed partial class PingConsumer(
 
     /// <summary>
     /// Processes entries in order and acknowledges the ones that are done. Stops at the first failure,
-    /// leaving it and everything after it pending on this consumer for the next iteration.
+    /// keeping it and everything after it for the next iteration. Those entries stay pending in Redis,
+    /// but they are retried from memory rather than re-read from the pending list: a re-read raises the
+    /// delivery count, and a transient error must not push an entry towards the dead-letter stream.
     /// </summary>
     private async Task<int> HandleAsync(IReadOnlyList<LogEntry> entries, CancellationToken cancellationToken)
     {
         var done = new List<string>(entries.Count);
+        var index = 0;
         try
         {
-            foreach (var entry in entries)
+            for (; index < entries.Count; index++)
             {
+                var entry = entries[index];
+                if (entry.DeliveryCount > _options.MaxDeliveryCount)
+                {
+                    _failedAttempts.Remove(entry.Id);
+                    await DeadLetterAsync(entry, $"delivered {entry.DeliveryCount} times without being acknowledged", cancellationToken)
+                        .ConfigureAwait(false);
+                    continue;
+                }
+
                 if (!LocationPingCodec.TryDecode(entry.Fields, out var ping, out var error))
                 {
                     await DeadLetterAsync(entry, error, cancellationToken).ConfigureAwait(false);
@@ -180,19 +207,13 @@ public sealed partial class PingConsumer(
                         LogAlert(alert.DeviceId, alert.Transition.ToString(), alert.GeofenceId);
                     }
                 }
-                catch (Exception ex) when (IsTransient(ex))
+                catch (Exception ex) when (!IsTransient(ex) && ex is not OperationCanceledException)
                 {
-                    // Redis is unreachable: not the entry's fault, so it does not count towards dead-lettering.
-                    _ownPendingDirty = true;
-                    throw;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
+                    // Redis being unreachable is not the entry's fault, so only other errors count here.
                     var attempts = _failedAttempts.GetValueOrDefault(entry.Id) + 1;
                     if (attempts < _options.MaxDeliveryAttempts)
                     {
                         _failedAttempts[entry.Id] = attempts;
-                        _ownPendingDirty = true;
                         throw;
                     }
 
@@ -201,15 +222,34 @@ public sealed partial class PingConsumer(
                 }
             }
         }
-        finally
+        catch
         {
-            if (done.Count > 0)
-            {
-                await group.AcknowledgeAsync(done, CancellationToken.None).ConfigureAwait(false);
-            }
+            _retry = entries.Skip(index).ToArray();
+            await AcknowledgeAsync(done).ConfigureAwait(false);
+            throw;
         }
 
+        await AcknowledgeAsync(done).ConfigureAwait(false);
         return entries.Count;
+    }
+
+    private async Task AcknowledgeAsync(List<string> done)
+    {
+        if (done.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await group.AcknowledgeAsync(done, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsTransient(ex))
+        {
+            // Processed but not acknowledged: re-read them once Redis is back (they are stale by then).
+            _ownPendingDirty = true;
+            throw;
+        }
     }
 
     private static bool IsTransient(Exception exception) => exception is RedisException or TimeoutException;
@@ -217,7 +257,7 @@ public sealed partial class PingConsumer(
     private async Task DeadLetterAsync(LogEntry entry, string reason, CancellationToken cancellationToken)
     {
         LogDeadLettered(entry.Id, reason);
-        await group.DeadLetterAsync(entry, reason, cancellationToken).ConfigureAwait(false);
+        await group.DeadLetterAsync(entry, reason, ConsumerName, cancellationToken).ConfigureAwait(false);
         metrics.DeadLettered();
     }
 

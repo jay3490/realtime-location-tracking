@@ -33,4 +33,8 @@ public sealed class RedisOptions
 
     [Range(100, int.MaxValue)]
     public int AlertLogMaxLength { get; set; } = 10_000;
+
+    /// <summary>Approximate cap on the dead-letter stream.</summary>
+    [Range(100, int.MaxValue)]
+    public int DeadLetterMaxLength { get; set; } = 100_000;
 }
