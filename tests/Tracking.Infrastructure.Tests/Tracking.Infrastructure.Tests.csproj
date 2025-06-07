@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tracking.Infrastructure\Tracking.Infrastructure.csproj" />
+    <ProjectReference Include="..\Tracking.Testing\Tracking.Testing.csproj" />
   </ItemGroup>
 
 </Project>

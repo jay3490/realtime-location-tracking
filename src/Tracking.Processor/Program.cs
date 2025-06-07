@@ -11,6 +11,7 @@ builder.Services.AddOptions<ProcessorOptions>()
     .Bind(builder.Configuration.GetSection(ProcessorOptions.SectionName))
     .ValidateDataAnnotations()
     .Validate(o => o.MinIdleDelay <= o.MaxIdleDelay, "MinIdleDelay must not exceed MaxIdleDelay.")
+    .Validate(o => o.ErrorDelay <= o.MaxErrorDelay, "ErrorDelay must not exceed MaxErrorDelay.")
     .ValidateOnStart();
 
 builder.Services.AddSingleton(TimeProvider.System);

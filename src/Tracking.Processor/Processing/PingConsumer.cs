@@ -37,6 +37,7 @@ public sealed partial class PingConsumer(
     private bool _ownPendingDirty = true;
     private IReadOnlyList<LogEntry> _retry = [];
     private DateTimeOffset _nextClaimAt = DateTimeOffset.MinValue;
+    private readonly ErrorBackoff _backoff = new(options.Value.ErrorDelay, options.Value.MaxErrorDelay, new Random());
 
     public string ConsumerName => _options.ConsumerName;
 
@@ -51,6 +52,7 @@ public sealed partial class PingConsumer(
             {
                 var processed = await PollAsync(stoppingToken).ConfigureAwait(false);
                 heartbeat.Beat();
+                _backoff.Reset();
 
                 if (processed > 0)
                 {
@@ -68,8 +70,9 @@ public sealed partial class PingConsumer(
             catch (Exception ex)
             {
                 heartbeat.Beat();
-                LogPollFailed(ex, _options.ErrorDelay);
-                await Task.Delay(_options.ErrorDelay, clock, stoppingToken).ConfigureAwait(false);
+                var delay = _backoff.NextDelay();
+                LogPollFailed(ex, _backoff.ConsecutiveFailures, delay);
+                await Task.Delay(delay, clock, stoppingToken).ConfigureAwait(false);
             }
         }
 
@@ -267,8 +270,8 @@ public sealed partial class PingConsumer(
     [LoggerMessage(Level = LogLevel.Information, Message = "Consumer {Consumer} stopped")]
     private partial void LogStopped(string consumer);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Poll failed; retrying in {Delay}")]
-    private partial void LogPollFailed(Exception exception, TimeSpan delay);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Poll failed ({Failures} in a row); retrying in {Delay}")]
+    private partial void LogPollFailed(Exception exception, int failures, TimeSpan delay);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-reading {Count} entries left pending by a previous run")]
     private partial void LogRecoveringPending(int count);

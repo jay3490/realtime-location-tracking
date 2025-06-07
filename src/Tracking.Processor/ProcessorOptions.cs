@@ -23,9 +23,15 @@ public sealed class ProcessorOptions
     [Range(typeof(TimeSpan), "00:00:00.001", "00:01:00")]
     public TimeSpan MaxIdleDelay { get; set; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>Delay before retrying after Redis or processing errors.</summary>
+    /// <summary>
+    /// Delay before retrying after the first Redis or processing error; it doubles (with jitter) on
+    /// each consecutive failure up to <see cref="MaxErrorDelay"/>.
+    /// </summary>
     [Range(typeof(TimeSpan), "00:00:00.001", "00:05:00")]
-    public TimeSpan ErrorDelay { get; set; } = TimeSpan.FromSeconds(2);
+    public TimeSpan ErrorDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+    [Range(typeof(TimeSpan), "00:00:00.001", "00:10:00")]
+    public TimeSpan MaxErrorDelay { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>How long an entry must sit unacknowledged on another consumer before it is claimed.</summary>
     [Range(typeof(TimeSpan), "00:00:01", "01:00:00")]

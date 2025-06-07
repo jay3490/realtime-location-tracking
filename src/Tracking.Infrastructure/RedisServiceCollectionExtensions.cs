@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using Tracking.Core.Abstractions;
@@ -21,16 +23,13 @@ public static class RedisServiceCollectionExtensions
         services.AddOptions<RedisOptions>()
             .Bind(configuration.GetSection(RedisOptions.SectionName))
             .ValidateDataAnnotations()
+            .Validate(o => o.ReconnectBaseDelay <= o.ReconnectMaxDelay, "ReconnectBaseDelay must not exceed ReconnectMaxDelay.")
             .ValidateOnStart();
 
-        services.AddSingleton<IConnectionMultiplexer>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<RedisOptions>>().Value;
-            var config = ConfigurationOptions.Parse(options.ConnectionString);
-            // Keep retrying in the background instead of failing startup while Redis is still coming up.
-            config.AbortOnConnectFail = false;
-            return ConnectionMultiplexer.Connect(config);
-        });
+        services.AddSingleton(sp => RedisConnection.Connect(
+            sp.GetRequiredService<IOptions<RedisOptions>>().Value,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(RedisConnection).FullName!),
+            sp.GetRequiredService<IMeterFactory>()));
 
         services.AddSingleton<RedisKeys>();
         services.AddSingleton<ILocationLog, RedisLocationLog>();
@@ -52,6 +51,11 @@ internal sealed class RedisHealthCheck(IConnectionMultiplexer redis) : IHealthCh
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
+        if (!redis.IsConnected)
+        {
+            return HealthCheckResult.Unhealthy("Redis is disconnected; reconnecting in the background.");
+        }
+
         try
         {
             var latency = await redis.GetDatabase().PingAsync().WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);

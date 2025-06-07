@@ -34,6 +34,34 @@ public sealed class RedisOptions
     [Range(100, int.MaxValue)]
     public int AlertLogMaxLength { get; set; } = 10_000;
 
+    /// <summary>Attempts per connect cycle before the multiplexer falls back to its reconnect policy.</summary>
+    [Range(1, 100)]
+    public int ConnectRetry { get; set; } = 3;
+
+    [Range(typeof(TimeSpan), "00:00:00.100", "00:01:00")]
+    public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long one command may take before it fails with a timeout.</summary>
+    [Range(typeof(TimeSpan), "00:00:00.050", "00:01:00")]
+    public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Idle interval after which a keep-alive is sent, so dead connections are noticed.</summary>
+    [Range(typeof(TimeSpan), "00:00:01", "00:10:00")]
+    public TimeSpan KeepAlive { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>First delay of the exponential reconnect back-off.</summary>
+    [Range(typeof(TimeSpan), "00:00:00.010", "00:01:00")]
+    public TimeSpan ReconnectBaseDelay { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Upper bound of the exponential reconnect back-off.</summary>
+    [Range(typeof(TimeSpan), "00:00:00.100", "00:10:00")]
+    public TimeSpan ReconnectMaxDelay { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Fail commands immediately while disconnected instead of queueing them until they time out.
+    /// </summary>
+    public bool FailFastWhenDisconnected { get; set; } = true;
+
     /// <summary>Approximate cap on the dead-letter stream.</summary>
     [Range(100, int.MaxValue)]
     public int DeadLetterMaxLength { get; set; } = 100_000;
