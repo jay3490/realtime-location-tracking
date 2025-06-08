@@ -1,4 +1,5 @@
 using Tracking.Core.Abstractions;
+using Tracking.Core.Analytics;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
@@ -124,6 +125,8 @@ public sealed class InMemoryDeviceStateStore : IDeviceStateStore
 
     public List<GeofenceAlert> CommittedAlerts { get; } = [];
 
+    public List<AnalyticsEvent> CommittedAnalytics { get; } = [];
+
     public int Commits { get; private set; }
 
     /// <summary>Called before each commit; return false to simulate a racing writer.</summary>
@@ -139,7 +142,12 @@ public sealed class InMemoryDeviceStateStore : IDeviceStateStore
             ? Task.FromException<DeviceState?>(failure)
             : Task.FromResult(_states.GetValueOrDefault(deviceId));
 
-    public Task<bool> TryCommitAsync(DeviceState? expected, DeviceState updated, IReadOnlyList<GeofenceAlert> alerts, CancellationToken cancellationToken = default)
+    public Task<bool> TryCommitAsync(
+        DeviceState? expected,
+        DeviceState updated,
+        IReadOnlyList<GeofenceAlert> alerts,
+        IReadOnlyList<AnalyticsEvent> analytics,
+        CancellationToken cancellationToken = default)
     {
         if (BeforeCommit is { } hook && !hook(updated))
         {
@@ -154,6 +162,7 @@ public sealed class InMemoryDeviceStateStore : IDeviceStateStore
 
         _states[updated.DeviceId] = updated;
         CommittedAlerts.AddRange(alerts);
+        CommittedAnalytics.AddRange(analytics);
         Commits++;
         return Task.FromResult(true);
     }

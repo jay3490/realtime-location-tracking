@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using Tracking.Core;
 using Tracking.Core.Abstractions;
+using Tracking.Core.Analytics;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
@@ -15,8 +16,8 @@ namespace Tracking.Infrastructure.Redis;
 /// </summary>
 /// <remarks>
 /// A commit is a single <c>MULTI</c>/<c>EXEC</c> guarded by a <c>WATCH</c>-style condition on the stored
-/// timestamp: the hash, the <c>GEOADD</c>, the alert log entries and the alert <c>PUBLISH</c> all land
-/// together or not at all. Two processors racing on one device therefore cannot interleave, and an
+/// timestamp: the hash, the <c>GEOADD</c>, the alert log entries, the alert <c>PUBLISH</c> and the
+/// analytics outbox entries all land together or not at all. Two processors racing on one device therefore cannot interleave, and an
 /// alert is never published for a state that was not stored.
 /// </remarks>
 public sealed class RedisDeviceStateStore(IConnectionMultiplexer redis, RedisKeys keys, IOptions<RedisOptions> options)
@@ -59,10 +60,12 @@ public sealed class RedisDeviceStateStore(IConnectionMultiplexer redis, RedisKey
         DeviceState? expected,
         DeviceState updated,
         IReadOnlyList<GeofenceAlert> alerts,
+        IReadOnlyList<AnalyticsEvent> analytics,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(updated);
         ArgumentNullException.ThrowIfNull(alerts);
+        ArgumentNullException.ThrowIfNull(analytics);
 
         var deviceKey = keys.Device(updated.DeviceId);
         var transaction = Db.CreateTransaction();
@@ -86,6 +89,15 @@ public sealed class RedisDeviceStateStore(IConnectionMultiplexer redis, RedisKey
             var json = JsonSerializer.Serialize(alert, TrackingJson.Options);
             _ = transaction.StreamAddAsync(keys.AlertLog, "alert", json, maxLength: options.Value.AlertLogMaxLength, useApproximateMaxLength: true);
             _ = transaction.PublishAsync(keys.AlertChannel, json);
+        }
+
+        foreach (var analyticsEvent in analytics)
+        {
+            _ = transaction.StreamAddAsync(
+                keys.AnalyticsOutbox,
+                AnalyticsOutboxCodec.Encode(analyticsEvent),
+                maxLength: options.Value.AnalyticsOutboxMaxLength,
+                useApproximateMaxLength: true);
         }
 
         return await transaction.ExecuteAsync().WaitAsync(cancellationToken).ConfigureAwait(false);

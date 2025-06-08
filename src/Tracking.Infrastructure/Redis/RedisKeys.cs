@@ -24,6 +24,7 @@ public sealed class RedisKeys
         GeofencesVersion = $"{prefix}:geofences:version";
         AlertLog = $"{prefix}:alerts";
         AlertChannel = RedisChannel.Literal($"{prefix}:alerts");
+        AnalyticsOutbox = $"{prefix}:analytics";
     }
 
     public string Prefix { get; }
@@ -47,6 +48,12 @@ public sealed class RedisKeys
 
     /// <summary>Pub/sub channel that live alerts are published on.</summary>
     public RedisChannel AlertChannel { get; }
+
+    /// <summary>
+    /// Stream of analytics events written in the same transaction as the state they describe, and
+    /// relayed to Kafka from there.
+    /// </summary>
+    public RedisKey AnalyticsOutbox { get; }
 
     /// <summary>Hash holding the latest state of one device.</summary>
     public RedisKey Device(string deviceId) => $"{Prefix}:device:{deviceId}";

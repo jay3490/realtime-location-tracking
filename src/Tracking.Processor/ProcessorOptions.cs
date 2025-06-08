@@ -67,6 +67,12 @@ public sealed class ProcessorOptions
     [Range(typeof(TimeSpan), "00:00:01", "00:10:00")]
     public TimeSpan LagSampleInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Queue an analytics event for every committed position and geofence transition, for the relay to
+    /// forward to Kafka. Off means the pipeline runs without the analytics path.
+    /// </summary>
+    public bool PublishAnalytics { get; set; } = true;
+
     /// <summary>The worker is reported unhealthy if its loop has not completed an iteration for this long.</summary>
     [Range(typeof(TimeSpan), "00:00:05", "01:00:00")]
     public TimeSpan StallTimeout { get; set; } = TimeSpan.FromMinutes(1);

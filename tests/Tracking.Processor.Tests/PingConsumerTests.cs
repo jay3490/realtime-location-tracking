@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
+using Tracking.Core.Analytics;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
@@ -338,5 +339,23 @@ public sealed class PingConsumerTests : IDisposable
         Assert.Empty(_group.DeadLetters);
         Assert.Contains(id, _group.Acknowledged);
         Assert.NotNull(_states["van"]);
+    }
+
+    [Fact]
+    public async Task Committed_transitions_queue_their_analytics_events_in_the_same_commit()
+    {
+        var consumer = Consumer("c1");
+        _group.Append(Ping("van", 1_000, 0));
+        _group.Append(Ping("van", 100, 60));
+        _group.Append(Ping("van", 100, 60)); // redelivered duplicate: stale, so no events
+
+        await consumer.PollAsync();
+
+        Assert.Equal(
+            [AnalyticsEventKind.Position, AnalyticsEventKind.Position, AnalyticsEventKind.Geofence],
+            _states.CommittedAnalytics.Select(e => e.Kind));
+        var second = Assert.IsType<PositionEvent>(_states.CommittedAnalytics[1]);
+        Assert.Equal(900, second.DistanceMeters, precision: 1);
+        Assert.Equal(T0, second.PreviousRecordedAt);
     }
 }

@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
+using Tracking.Core;
+using Tracking.Core.Analytics;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
 using Tracking.Core.Geofencing;
@@ -30,7 +33,7 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
         var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
         var state = new DeviceState("van-1", Dam, T0, 12.25, 271.5, ["a", "b"]);
 
-        Assert.True(await store.TryCommitAsync(null, state, []));
+        Assert.True(await store.TryCommitAsync(null, state, [], []));
 
         var loaded = await store.GetAsync("van-1");
         Assert.NotNull(loaded);
@@ -47,7 +50,7 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
     {
         var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
 
-        await store.TryCommitAsync(null, new DeviceState("d", Dam, T0, null, null, []), []);
+        await store.TryCommitAsync(null, new DeviceState("d", Dam, T0, null, null, []), [], []);
         var loaded = await store.GetAsync("d");
 
         Assert.Null(loaded!.SpeedMetersPerSecond);
@@ -63,10 +66,10 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
         var v2 = v1 with { RecordedAt = T0.AddSeconds(1) };
         var v3 = v1 with { RecordedAt = T0.AddSeconds(2) };
 
-        Assert.True(await store.TryCommitAsync(null, v1, []));
-        Assert.False(await store.TryCommitAsync(null, v2, []));
-        Assert.True(await store.TryCommitAsync(v1, v2, []));
-        Assert.False(await store.TryCommitAsync(v1, v3, []));
+        Assert.True(await store.TryCommitAsync(null, v1, [], []));
+        Assert.False(await store.TryCommitAsync(null, v2, [], []));
+        Assert.True(await store.TryCommitAsync(v1, v2, [], []));
+        Assert.False(await store.TryCommitAsync(v1, v3, [], []));
 
         Assert.Equal(T0.AddSeconds(1), (await store.GetAsync("d"))!.RecordedAt);
     }
@@ -86,11 +89,11 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
 
         var enter = new GeofenceAlert("d", "dam", "Dam Square", GeofenceTransition.Enter, Dam, T0);
         var exit = enter with { Transition = GeofenceTransition.Exit, OccurredAt = T0.AddMinutes(1) };
-        await store.TryCommitAsync(null, new DeviceState("d", Dam, T0, null, null, ["dam"]), [enter]);
+        await store.TryCommitAsync(null, new DeviceState("d", Dam, T0, null, null, ["dam"]), [enter], []);
         await store.TryCommitAsync(
             new DeviceState("d", Dam, T0, null, null, ["dam"]),
             new DeviceState("d", Dam, T0.AddMinutes(1), null, null, []),
-            [exit]);
+            [exit], []);
 
         Assert.Equal(enter, await received.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal([exit, enter], await log.GetRecentAsync(10));
@@ -102,10 +105,10 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
         var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
         var log = new RedisAlertLog(redis.Connection, Keys);
         var state = new DeviceState("d", Dam, T0, null, null, []);
-        await store.TryCommitAsync(null, state, []);
+        await store.TryCommitAsync(null, state, [], []);
 
         var alert = new GeofenceAlert("d", "x", "X", GeofenceTransition.Enter, Dam, T0);
-        Assert.False(await store.TryCommitAsync(null, state with { RecordedAt = T0.AddSeconds(5) }, [alert]));
+        Assert.False(await store.TryCommitAsync(null, state with { RecordedAt = T0.AddSeconds(5) }, [alert], []));
 
         Assert.Empty(await log.GetRecentAsync(10));
     }
@@ -114,9 +117,9 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
     public async Task Nearby_search_returns_devices_nearest_first_within_the_radius()
     {
         var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
-        await store.TryCommitAsync(null, new DeviceState("far", GeoMath.Destination(Dam, 90, 900), T0, null, null, []), []);
-        await store.TryCommitAsync(null, new DeviceState("near", GeoMath.Destination(Dam, 0, 100), T0, null, null, []), []);
-        await store.TryCommitAsync(null, new DeviceState("outside", GeoMath.Destination(Dam, 0, 5_000), T0, null, null, []), []);
+        await store.TryCommitAsync(null, new DeviceState("far", GeoMath.Destination(Dam, 90, 900), T0, null, null, []), [], []);
+        await store.TryCommitAsync(null, new DeviceState("near", GeoMath.Destination(Dam, 0, 100), T0, null, null, []), [], []);
+        await store.TryCommitAsync(null, new DeviceState("outside", GeoMath.Destination(Dam, 0, 5_000), T0, null, null, []), [], []);
 
         var nearby = await store.FindNearbyAsync(Dam, 1_000, 10);
 
@@ -149,5 +152,29 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
         Assert.False(await store.DeleteAsync("dam"));
         Assert.Null(await store.GetAsync("dam"));
         Assert.Equal(versionBeforeDelete + 1, await store.GetVersionAsync());
+    }
+
+    [RedisFact]
+    public async Task Analytics_events_are_queued_in_the_outbox_only_when_the_commit_lands()
+    {
+        var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
+        var state = new DeviceState("d", Dam, T0, null, null, ["dam"]);
+        var enter = new GeofenceAlert("d", "dam", "Dam", GeofenceTransition.Enter, Dam, T0);
+        var events = AnalyticsEvents.For(null, state, new LocationPing("d", Dam, T0), [enter]);
+
+        Assert.True(await store.TryCommitAsync(null, state, [enter], events));
+        Assert.False(await store.TryCommitAsync(null, state with { RecordedAt = T0.AddSeconds(1) }, [], events));
+
+        var outbox = await redis.Connection.GetDatabase().StreamRangeAsync(Keys.AnalyticsOutbox);
+        Assert.Equal(2, outbox.Length);
+        var fields = outbox[0].Values.ToDictionary(v => v.Name.ToString(), v => v.Value.ToString(), StringComparer.Ordinal);
+        Assert.True(AnalyticsOutboxCodec.TryDecode(fields, out var kind, out var device, out var id, out var payload));
+        Assert.Equal(AnalyticsEventKind.Position, kind);
+        Assert.Equal("d", device);
+        Assert.Equal(events[0].EventId, id);
+        var position = JsonSerializer.Deserialize<PositionEvent>(payload, TrackingJson.Options)!;
+        Assert.Equal(T0, position.RecordedAt);
+        Assert.Equal(["dam"], position.InsideGeofenceIds);
+        Assert.Equal("Geofence", outbox[1]["kind"].ToString());
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Tracking.Core.Abstractions;
+using Tracking.Core.Analytics;
 using Tracking.Core.Devices;
 using Tracking.Core.Geofencing;
 
@@ -18,11 +19,13 @@ public sealed class CommitConflictException(string deviceId, int attempts)
     : Exception($"Device '{deviceId}' state kept changing; gave up after {attempts} commit attempts.");
 
 /// <summary>
-/// Applies one ping: read state, compute the transition, commit it conditionally, retry on conflict.
+/// Applies one ping: read state, compute the transition, commit it (with its analytics events)
+/// conditionally, retry on conflict.
 /// </summary>
 public sealed class PingProcessor(IDeviceStateStore states, GeofenceCache geofences, IOptions<ProcessorOptions> options)
 {
     private readonly int _maxAttempts = options.Value.MaxCommitAttempts;
+    private readonly bool _publishAnalytics = options.Value.PublishAnalytics;
 
     public async Task<(PingOutcome Outcome, IReadOnlyList<GeofenceAlert> Alerts)> ProcessAsync(
         LocationPing ping,
@@ -40,7 +43,10 @@ public sealed class PingProcessor(IDeviceStateStore states, GeofenceCache geofen
                 return (PingOutcome.Stale, []);
             }
 
-            if (await states.TryCommitAsync(current, outcome.State, outcome.Alerts, cancellationToken).ConfigureAwait(false))
+            var analytics = _publishAnalytics
+                ? AnalyticsEvents.For(current, outcome.State, ping, outcome.Alerts)
+                : [];
+            if (await states.TryCommitAsync(current, outcome.State, outcome.Alerts, analytics, cancellationToken).ConfigureAwait(false))
             {
                 return (PingOutcome.Applied, outcome.Alerts);
             }

@@ -62,6 +62,13 @@ public sealed class RedisOptions
     /// </summary>
     public bool FailFastWhenDisconnected { get; set; } = true;
 
+    /// <summary>
+    /// Approximate cap on the analytics outbox. Like the ping stream, it must exceed the backlog a
+    /// Kafka outage can build, or the oldest unrelayed events are trimmed.
+    /// </summary>
+    [Range(1_000, int.MaxValue)]
+    public int AnalyticsOutboxMaxLength { get; set; } = 1_000_000;
+
     /// <summary>Approximate cap on the dead-letter stream.</summary>
     [Range(100, int.MaxValue)]
     public int DeadLetterMaxLength { get; set; } = 100_000;
