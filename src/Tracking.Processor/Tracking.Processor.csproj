@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Tracking.Infrastructure\Tracking.Infrastructure.csproj" />
+    <ProjectReference Include="..\Tracking.Kafka\Tracking.Kafka.csproj" />
   </ItemGroup>
 
 </Project>

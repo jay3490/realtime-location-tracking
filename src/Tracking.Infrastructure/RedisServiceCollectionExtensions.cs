@@ -34,6 +34,7 @@ public static class RedisServiceCollectionExtensions
         services.AddSingleton<RedisKeys>();
         services.AddSingleton<ILocationLog, RedisLocationLog>();
         services.AddSingleton<ILocationConsumerGroup, RedisLocationConsumerGroup>();
+        services.AddSingleton<IAnalyticsOutbox, RedisAnalyticsOutbox>();
         services.AddSingleton<IDeviceStateStore, RedisDeviceStateStore>();
         services.AddSingleton<IGeofenceStore, RedisGeofenceStore>();
         services.AddSingleton<IAlertFeed, RedisAlertFeed>();

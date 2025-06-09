@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Tracking.Infrastructure;
 using Tracking.Infrastructure.Observability;
+using Tracking.Kafka;
 using Tracking.Processor;
 using Tracking.Processor.Processing;
 
@@ -23,6 +24,13 @@ builder.Services.AddHostedService<StreamLagMonitor>();
 builder.Services.AddTrackingTelemetry("tracking-processor", TrackingMeters.Processor);
 builder.Services.AddSingleton<PingConsumer>();
 builder.Services.AddHostedService<ProcessorWorker>();
+
+// The analytics path (outbox -> Kafka) is optional; without it the processor needs no Kafka at all.
+if (builder.Configuration.GetValue("Processor:PublishAnalytics", defaultValue: true))
+{
+    builder.Services.AddKafkaAnalyticsPublisher(builder.Configuration);
+    builder.Services.AddHostedService<AnalyticsRelay>();
+}
 
 builder.Services.AddHealthChecks()
     .AddCheck<ConsumerHeartbeatHealthCheck>("consumer-loop", tags: ["live"])

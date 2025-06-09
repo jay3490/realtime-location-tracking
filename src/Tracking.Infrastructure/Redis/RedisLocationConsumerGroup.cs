@@ -136,7 +136,7 @@ public sealed class RedisLocationConsumerGroup(IConnectionMultiplexer redis, Red
             .ToArray();
     }
 
-    private static LogEntry[] Convert(IEnumerable<StackExchange.Redis.StreamEntry> entries) =>
+    internal static LogEntry[] Convert(IEnumerable<StackExchange.Redis.StreamEntry> entries) =>
         entries
             .Where(e => !e.IsNull)
             .Select(e => new LogEntry(

@@ -177,4 +177,24 @@ public sealed class RedisStoreTests(RedisFixture redis) : IAsyncLifetime
         Assert.Equal(["dam"], position.InsideGeofenceIds);
         Assert.Equal("Geofence", outbox[1]["kind"].ToString());
     }
+
+    [RedisFact]
+    public async Task The_outbox_group_hands_each_event_to_one_relay_until_acknowledged()
+    {
+        var store = new RedisDeviceStateStore(redis.Connection, Keys, _options);
+        var outbox = new RedisAnalyticsOutbox(redis.Connection, Keys, _options);
+        var state = new DeviceState("d", Dam, T0, null, null, []);
+        await store.TryCommitAsync(null, state, [], AnalyticsEvents.For(null, state, new LocationPing("d", Dam, T0), []));
+        await outbox.EnsureConsumerGroupAsync();
+        await outbox.EnsureConsumerGroupAsync();
+
+        var entry = Assert.Single(await outbox.ReadNewAsync("r1", 10));
+        Assert.Empty(await outbox.ReadNewAsync("r2", 10));
+        await Task.Delay(30);
+        var claimed = await outbox.ClaimAbandonedAsync("r2", TimeSpan.FromMilliseconds(10), "0-0", 10);
+        await outbox.AcknowledgeAsync([entry.Id]);
+
+        Assert.Equal(entry.Id, Assert.Single(claimed.Entries).Id);
+        Assert.Empty(await outbox.ReadOwnPendingAsync("r2", "0", 10));
+    }
 }

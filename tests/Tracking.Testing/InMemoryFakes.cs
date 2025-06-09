@@ -19,7 +19,7 @@ public sealed class ManualClock(DateTimeOffset start) : TimeProvider
 /// In-memory model of one Redis stream with one consumer group: a delivery cursor, a pending
 /// entries list with owner and delivery time, acknowledgement and claiming by idle time.
 /// </summary>
-public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumerGroup
+public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumerGroup, IAnalyticsOutbox
 {
     private readonly List<LogEntry> _entries = [];
     private readonly Dictionary<string, (string Consumer, DateTimeOffset DeliveredAt)> _pending = new(StringComparer.Ordinal);
@@ -37,6 +37,15 @@ public sealed class InMemoryConsumerGroup(ManualClock clock) : ILocationConsumer
 
     public string Append(LocationPing ping) =>
         AppendRaw(LocationPingCodec.Encode(ping).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal));
+
+    public string AppendEvent(AnalyticsEvent analyticsEvent) =>
+        AppendRaw(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["kind"] = analyticsEvent.Kind.ToString(),
+            ["device"] = analyticsEvent.DeviceId,
+            ["id"] = analyticsEvent.EventId,
+            ["payload"] = System.Text.Json.JsonSerializer.Serialize(analyticsEvent, analyticsEvent.GetType(), Core.TrackingJson.Options),
+        });
 
     public string AppendRaw(IReadOnlyDictionary<string, string> fields)
     {
@@ -235,4 +244,27 @@ public sealed class InMemoryAlertLog : IAlertLog
 
     public Task<IReadOnlyList<GeofenceAlert>> GetRecentAsync(int count, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<GeofenceAlert>>(Enumerable.Reverse(_alerts).Take(count).ToArray());
+}
+
+public sealed class RecordingAnalyticsPublisher : IAnalyticsPublisher
+{
+    public List<OutboundEvent> Published { get; } = [];
+
+    /// <summary>Events for which this returns true are reported as not acknowledged.</summary>
+    public Func<OutboundEvent, bool>? FailWhere { get; set; }
+
+    public Task<IReadOnlyList<bool>> PublishAsync(IReadOnlyList<OutboundEvent> events, CancellationToken cancellationToken = default)
+    {
+        var results = new bool[events.Count];
+        for (var i = 0; i < events.Count; i++)
+        {
+            results[i] = FailWhere?.Invoke(events[i]) != true;
+            if (results[i])
+            {
+                Published.Add(events[i]);
+            }
+        }
+
+        return Task.FromResult<IReadOnlyList<bool>>(results);
+    }
 }

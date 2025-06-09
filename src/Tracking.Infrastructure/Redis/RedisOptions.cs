@@ -18,6 +18,10 @@ public sealed class RedisOptions
     [Required]
     public string ConsumerGroup { get; set; } = "processors";
 
+    /// <summary>Consumer group on the analytics outbox, shared by the relays that forward it to Kafka.</summary>
+    [Required]
+    public string AnalyticsRelayGroup { get; set; } = "analytics-relay";
+
     /// <summary>
     /// Approximate cap on the ping stream (<c>XADD MAXLEN ~</c>). Trimming removes the oldest entries
     /// whether or not they were processed, so this must exceed the backlog a processor outage can build.

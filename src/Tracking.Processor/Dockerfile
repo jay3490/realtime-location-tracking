@@ -8,6 +8,7 @@ WORKDIR /source
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY src/Tracking.Core/Tracking.Core.csproj src/Tracking.Core/
 COPY src/Tracking.Infrastructure/Tracking.Infrastructure.csproj src/Tracking.Infrastructure/
+COPY src/Tracking.Kafka/Tracking.Kafka.csproj src/Tracking.Kafka/
 COPY src/Tracking.Processor/Tracking.Processor.csproj src/Tracking.Processor/
 RUN dotnet restore src/Tracking.Processor/Tracking.Processor.csproj
 
