@@ -23,3 +23,7 @@ dotnet_sort_system_directives_first = true
 [tests/**.cs]
 # Test names read as sentences.
 dotnet_diagnostic.CA1707.severity = none
+
+[src/Tracking.Analytics.Data/Migrations/**.cs]
+# Written by `dotnet ef migrations add`.
+generated_code = true

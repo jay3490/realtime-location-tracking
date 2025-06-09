@@ -67,7 +67,8 @@ public sealed class RedisConnectionTests
             multiplexer, endPoint, ConnectionType.Interactive, ConnectionFailureType.None, null!, "test"));
         recorder.Observe();
 
-        Assert.Equal(1, recorder.Sum("tracking.redis.connection.events", "event", "failed"));
+        // The unreachable endpoint may also raise real failures while the test runs.
+        Assert.True(recorder.Sum("tracking.redis.connection.events", "event", "failed") >= 1);
         Assert.Equal(1, recorder.Sum("tracking.redis.connection.events", "event", "restored"));
         Assert.Equal(0, recorder.Last("tracking.redis.connected"));
     }
