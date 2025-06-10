@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tracking.Analytics.Data", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tracking.Analytics.Tests", "tests\Tracking.Analytics.Tests\Tracking.Analytics.Tests.csproj", "{301FAA04-9F6C-439C-8327-4D387827A312}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tracking.Analytics", "src\Tracking.Analytics\Tracking.Analytics.csproj", "{B7143C5F-9289-48C1-B29E-5949EC1B87EE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -112,6 +114,10 @@ Global
 		{301FAA04-9F6C-439C-8327-4D387827A312}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{301FAA04-9F6C-439C-8327-4D387827A312}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{301FAA04-9F6C-439C-8327-4D387827A312}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7143C5F-9289-48C1-B29E-5949EC1B87EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7143C5F-9289-48C1-B29E-5949EC1B87EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7143C5F-9289-48C1-B29E-5949EC1B87EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7143C5F-9289-48C1-B29E-5949EC1B87EE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{61988C10-EF91-418E-8F53-205EB2C33265} = {E8A41AE2-13DC-48B6-9A18-68C8A8F83B72}
@@ -130,5 +136,6 @@ Global
 		{DB4D3857-F59D-4EB5-88B4-4089B283ACF2} = {E8A41AE2-13DC-48B6-9A18-68C8A8F83B72}
 		{5C63FAE6-5CB7-4E85-9BD9-14B400EC234F} = {E8A41AE2-13DC-48B6-9A18-68C8A8F83B72}
 		{301FAA04-9F6C-439C-8327-4D387827A312} = {53139496-7BD9-4464-BA09-5DE84296A00C}
+		{B7143C5F-9289-48C1-B29E-5949EC1B87EE} = {E8A41AE2-13DC-48B6-9A18-68C8A8F83B72}
 	EndGlobalSection
 EndGlobal

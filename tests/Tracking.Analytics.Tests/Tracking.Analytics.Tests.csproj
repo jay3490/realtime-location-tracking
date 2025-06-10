@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Tracking.Analytics\Tracking.Analytics.csproj" />
     <ProjectReference Include="..\..\src\Tracking.Analytics.Data\Tracking.Analytics.Data.csproj" />
     <ProjectReference Include="..\Tracking.Testing\Tracking.Testing.csproj" />
   </ItemGroup>

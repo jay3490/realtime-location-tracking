@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Tracking.Analytics</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracking.Analytics.Data\Tracking.Analytics.Data.csproj" />
+    <ProjectReference Include="..\Tracking.Kafka\Tracking.Kafka.csproj" />
+  </ItemGroup>
+
+</Project>

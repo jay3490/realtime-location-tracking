@@ -19,6 +19,8 @@ public sealed class SqliteAnalyticsDatabase : IDisposable
         db.Database.EnsureCreated();
     }
 
+    public SqliteConnection Connection => _connection;
+
     public DbContextOptions<AnalyticsDbContext> Options =>
         new DbContextOptionsBuilder<AnalyticsDbContext>().UseSqlite(_connection).Options;
 
