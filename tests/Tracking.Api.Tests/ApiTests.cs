@@ -4,7 +4,11 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Tracking.Analytics.Data;
 using Tracking.Core.Abstractions;
 using Tracking.Core.Devices;
 using Tracking.Core.Geo;
@@ -15,6 +19,8 @@ namespace Tracking.Api.Tests;
 
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
+    private readonly SqliteConnection _analytics = new("DataSource=:memory:");
+
     public static readonly DateTimeOffset Now = new(2026, 8, 1, 9, 0, 0, TimeSpan.Zero);
 
     public InMemoryDeviceStateStore States { get; } = new();
@@ -23,11 +29,32 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public InMemoryAlertLog Alerts { get; } = new();
 
+    /// <summary>Opens a context on the in-memory analytics database, for seeding.</summary>
+    public AnalyticsDbContext Analytics() =>
+        new(new DbContextOptionsBuilder<AnalyticsDbContext>().UseSqlite(_analytics).Options);
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            _analytics.Dispose();
+        }
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        _analytics.Open();
+        using (var db = Analytics())
+        {
+            db.Database.EnsureCreated();
+        }
+
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            services.RemoveAll<DbContextOptions<AnalyticsDbContext>>();
+            services.AddDbContext<AnalyticsDbContext>(options => options.UseSqlite(_analytics));
             services.AddSingleton<IDeviceStateStore>(States);
             services.AddSingleton<IGeofenceStore>(Geofences);
             services.AddSingleton<IAlertLog>(Alerts);

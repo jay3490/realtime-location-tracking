@@ -8,6 +8,7 @@ WORKDIR /source
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY src/Tracking.Core/Tracking.Core.csproj src/Tracking.Core/
 COPY src/Tracking.Infrastructure/Tracking.Infrastructure.csproj src/Tracking.Infrastructure/
+COPY src/Tracking.Analytics.Data/Tracking.Analytics.Data.csproj src/Tracking.Analytics.Data/
 COPY src/Tracking.Api/Tracking.Api.csproj src/Tracking.Api/
 RUN dotnet restore src/Tracking.Api/Tracking.Api.csproj
 

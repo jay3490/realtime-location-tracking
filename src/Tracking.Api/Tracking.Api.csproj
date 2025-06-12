@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Tracking.Analytics.Data\Tracking.Analytics.Data.csproj" />
     <ProjectReference Include="..\Tracking.Infrastructure\Tracking.Infrastructure.csproj" />
   </ItemGroup>
 

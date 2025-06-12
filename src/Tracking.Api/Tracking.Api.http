@@ -40,3 +40,12 @@ GET {{api}}/api/devices/nearby?lat=52.3731&lon=4.8926&radiusMeters=2000&limit=20
 
 ### Recent geofence alerts
 GET {{api}}/api/alerts?limit=20
+
+### Distance per UTC day for one device (defaults to the last 7 days)
+GET {{api}}/api/analytics/devices/sim-0001/distance?from=2026-10-20&to=2026-10-27
+
+### Time spent inside each geofence (defaults to the last 24 hours)
+GET {{api}}/api/analytics/devices/sim-0001/geofence-time
+
+### Dwell events (visits longer than Analytics:DwellThreshold) in the last 7 days
+GET {{api}}/api/analytics/dwell-events?geofenceId=sim-center&limit=20
