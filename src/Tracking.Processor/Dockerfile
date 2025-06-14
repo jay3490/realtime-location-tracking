@@ -17,7 +17,7 @@ RUN dotnet publish src/Tracking.Processor/Tracking.Processor.csproj --configurat
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
-# HTTP is used only for health probes.
+# HTTP is used only for health probes and metrics.
 # The base image sets ASPNETCORE_HTTP_PORTS=8080; clear it so the explicit endpoints below are the only ones.
 ENV ASPNETCORE_HTTP_PORTS=
 ENV Urls=http://+:8080
