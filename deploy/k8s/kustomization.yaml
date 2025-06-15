@@ -11,9 +11,21 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - redis.yaml
+  - kafka.yaml
+  - postgres.yaml
   - ingest.yaml
   - processor.yaml
+  - analytics.yaml
   - api.yaml
+
+# Development credentials for the analytics database. Replace them (or the whole secret, for example
+# with an ExternalSecret) before deploying anywhere that matters.
+secretGenerator:
+  - name: analytics-db
+    literals:
+      - username=tracking
+      - password=change-me
+      - connection-string=Host=postgres;Port=5432;Database=tracking_analytics;Username=tracking;Password=change-me
 
 # The manifests reference the images built by docker compose (tracking-*:local). To deploy images
 # from a registry instead, run for example:
@@ -22,6 +34,8 @@ images:
   - name: tracking-ingest
     newTag: local
   - name: tracking-processor
+    newTag: local
+  - name: tracking-analytics
     newTag: local
   - name: tracking-api
     newTag: local

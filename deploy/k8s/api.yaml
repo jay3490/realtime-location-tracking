@@ -37,6 +37,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: tracking-config
+          env:
+            # Enables the /api/analytics reports; without it the API serves live state only.
+            - name: ConnectionStrings__Analytics
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-db
+                  key: connection-string
           ports:
             - name: http
               containerPort: 8080

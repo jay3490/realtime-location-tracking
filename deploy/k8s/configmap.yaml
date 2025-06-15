@@ -11,4 +11,8 @@ data:
   Processor__BatchSize: "100"
   Processor__ClaimMinIdle: "00:00:30"
   Processor__ClaimInterval: "00:00:10"
+  Processor__PublishAnalytics: "true"
+  Kafka__BootstrapServers: "kafka-0.kafka:9092"
+  AnalyticsConsumer__GroupId: "tracking-analytics"
+  Analytics__DwellThreshold: "00:05:00"
   Logging__LogLevel__Default: "Information"
